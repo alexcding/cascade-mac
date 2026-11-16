@@ -958,8 +958,10 @@ async fn the_app_types_into_a_peers_session_terminal_through_its_own_socket() {
     while let Ok(request) = heard.try_recv() {
         requests.push(request);
     }
-    // The relay's own narrowing hello first, wanting no answer; then the app's.
-    assert_eq!(requests[0], json!({ "op": "hello", "eventScope": "attached" }));
+    // The relay's own narrowing hello first, wanting no answer and holding nothing up; then the
+    // app's, held to the same.
+    assert_eq!(requests[0], json!({ "op": "hello", "eventScope": "attached", "backpressure": false }));
+    assert_eq!(requests[1]["backpressure"], false);
     let ops: Vec<&str> = requests.iter().map(|request| request["op"].as_str().unwrap()).collect();
     assert_eq!(ops, ["hello", "hello", "list", "attach", "write"]);
     // The socket took its one connection and is gone.

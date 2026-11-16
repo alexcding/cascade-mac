@@ -112,7 +112,7 @@ fn idle_socket_starts_its_delivery_deadline_with_new_work() {
   // Hold the receiver without a writer: a fast socket must not conceal a
   // missing idle-clock reset by delivering the first frame between offers.
   fixture.daemon.clients.lock().unwrap().push(Client {
-    id: 1, byte_transport: false, hears_all: true, terminals: HashSet::new(), tx, sock,
+    id: 1, byte_transport: false, hears_all: true, backpressure: true, terminals: HashSet::new(), tx, sock,
     owed: Arc::new(AtomicUsize::new(0)),
     progress: Arc::new(Mutex::new(Instant::now() - STALL_DROP - Duration::from_secs(1))),
   });
@@ -288,4 +288,46 @@ fn a_scoped_client_that_stops_reading_holds_up_only_what_it_hears() {
   read_until(&mut healthy, output_of(&free.id, "FREE"));
   std::thread::sleep(Duration::from_millis(100));
   assert_eq!(rings[0].lock().unwrap().seq, before, "the slow client's debt pauses what it hears");
+}
+
+#[test]
+fn a_viewer_without_backpressure_never_holds_a_terminal_up() {
+  let mut fixture = Fixture::new();
+  let (_, mut healthy) = fixture.connect();
+  let (viewer_id, mut viewer) = fixture.connect();
+  let hello = negotiate(&mut viewer, json!({"id":1,"op":"hello","eventScope":"attached","backpressure":false}));
+  assert_eq!(hello["backpressure"], false);
+  let terminal = fixture.echo_terminal(Some(viewer_id));
+  read_ready(&mut healthy, 1);
+
+  // The viewer stops reading and falls far behind: its debt pauses nothing.
+  let chunk = "x".repeat(BATCH_MAX_BYTES);
+  let mut sequence = 0;
+  while fixture.daemon.clients.lock().unwrap().iter().any(|c| c.id == viewer_id && c.owed.load(Ordering::Relaxed) <= BACKLOG_HIGH) {
+    sequence += 1;
+    assert!(sequence < 100, "unread socket must accumulate delivery debt");
+    fixture.daemon.broadcast_output(&terminal.id, sequence, sequence, chunk.as_bytes(), &chunk);
+    assert_eq!(read(&mut healthy)["seq"], sequence);
+  }
+  let owed = fixture.daemon.clients.lock().unwrap().iter().find(|c| c.id == viewer_id).map(|c| c.owed.load(Ordering::Relaxed));
+  assert!(owed.is_some_and(|owed| owed > BACKLOG_HIGH), "the viewer is still connected and far behind: {owed:?}");
+  assert_eq!(fixture.daemon.backlog(&terminal.id), 0, "a viewer without backpressure owes nothing that pauses reads");
+
+  // Nor does its flow pause: the terminal keeps answering the healthy client.
+  fixture.daemon.flow(viewer_id, &terminal.id, true);
+  assert!(!fixture.daemon.terms.lock().unwrap()[&terminal.id].paused.load(Ordering::Relaxed));
+  fixture.daemon.write(&terminal.id, b"LIVE").unwrap();
+  read_until(&mut healthy, output_of(&terminal.id, "LIVE"));
+}
+
+#[test]
+fn turning_backpressure_off_releases_the_pauses_already_held() {
+  let mut fixture = Fixture::new();
+  let (viewer_id, mut viewer) = fixture.connect();
+  let terminal = fixture.echo_terminal(Some(viewer_id));
+  fixture.daemon.flow(viewer_id, &terminal.id, true);
+  let paused = || fixture.daemon.terms.lock().unwrap()[&terminal.id].paused.load(Ordering::Relaxed);
+  assert!(paused());
+  negotiate(&mut viewer, json!({"id":1,"op":"hello","backpressure":false}));
+  assert!(!paused(), "a pause it can no longer release is dropped");
 }

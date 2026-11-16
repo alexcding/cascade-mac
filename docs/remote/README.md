@@ -34,8 +34,9 @@ QR code, token or port to set up.
   WebSocket URLs to whatever host the request came from, so the phone shows the same page
   the Mac shows, through the relay, in a `WKWebView`. No MJPEG parsing on the phone.
 - **Terminal = a WebSocket bridge to ptyd.** ptyd already allows several attachers per
-  terminal with ring-buffer replay and per-client backpressure. The bridge forwards
-  newline-delimited JSON frames and filters ops to attach/write/resize/flow.
+  terminal with ring-buffer replay. The bridge forwards newline-delimited JSON frames and
+  filters ops to attach/write/resize; a remote viewer holds nothing up (`backpressure: false`, no
+  `flow`), so one that falls behind is dropped and reattaches.
 - **Alerts = CloudKit subscriptions.** The Mac writes an `Alert` record when an agent goes
   idle or a review is requested; CloudKit pushes it to the phone. No APNs server of our own.
 

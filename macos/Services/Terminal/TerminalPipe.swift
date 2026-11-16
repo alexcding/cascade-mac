@@ -32,6 +32,8 @@ final class TerminalPipe: @unchecked Sendable {
     private var resumeCount: UInt64 = 0
     private var paused = false
     private var failed = false
+    /// A guest that fell too far behind: it hears nothing more and reconnects (`overflowLocked`).
+    private var shedding = false
     private var lastSequence: UInt64 = 0
     private var lastStateSequence: UInt64?
     private var ended = false
@@ -44,6 +46,11 @@ final class TerminalPipe: @unchecked Sendable {
     /// this Mac's theme: the ones that Mac's app gave it are not applied here, as its font is not.
     /// A program there asking for the colours (OSC 10/11, the colour-scheme report) is still
     /// answered by that Mac's daemon with that Mac's: the program runs there.
+    ///
+    /// Nor does it hold that Mac's terminal up: a pause asked from here would freeze it there too,
+    /// for as long as this Mac drew slowly (in the background, napping), so it asks for none — that
+    /// Mac's relay passes none on either. Fallen too far behind, it reconnects and starts again
+    /// from the terminal's current screen.
     private var guest = false
     private var latestAppearance: PtyAppearance?
     private let error: @Sendable (String) -> Void
@@ -152,10 +159,10 @@ final class TerminalPipe: @unchecked Sendable {
     func receive(_ event: PtyEvent) {
         lock.lock()
         defer { lock.unlock() }
-        guard event.id == termID, !failed else { return }
+        guard event.id == termID, !failed, !shedding else { return }
         queuedEvents += 1
         peakQueuedEvents = max(peakQueuedEvents, queuedEvents)
-        guard queuedEvents <= 16384 else { failLocked(String(localized: "Terminal output exceeded its event limit.")); return }
+        guard queuedEvents <= 16384 else { overflowLocked(String(localized: "Terminal output exceeded its event limit.")); return }
         if event.ev == "inputError" {
             let message = event.message ?? String(localized: "PTY write failed.")
             failLocked(String(localized: "Terminal input delivery failed: \(message) Earlier input may have been sent; remaining input was stopped. Check the shell before reattaching."))
@@ -168,8 +175,8 @@ final class TerminalPipe: @unchecked Sendable {
             queuedBytes += bytes.count
             receivedBytes &+= UInt64(bytes.count)
             peakQueuedBytes = max(peakQueuedBytes, queuedBytes)
-            guard queuedBytes <= 8 * 1024 * 1024 else { failLocked(String(localized: "Terminal output exceeded its buffer limit.")); return }
-            if queuedBytes > 1024 * 1024 && !paused { flowLocked(true) }
+            guard queuedBytes <= 8 * 1024 * 1024 else { overflowLocked(String(localized: "Terminal output exceeded its buffer limit.")); return }
+            if queuedBytes > 1024 * 1024 && !paused && !guest { flowLocked(true) }
         }
         if attaching {
             buffered.append(event)
@@ -266,7 +273,7 @@ final class TerminalPipe: @unchecked Sendable {
         queuedBytes += replay.count
         peakQueuedBytes = max(peakQueuedBytes, queuedBytes)
         guard queuedBytes <= 8 * 1024 * 1024 else { failLocked(String(localized: "Terminal attachment exceeded its buffer limit.")); return }
-        if queuedBytes > 1024 * 1024 && !paused { flowLocked(true) }
+        if queuedBytes > 1024 * 1024 && !paused && !guest { flowLocked(true) }
         outputQueue.async { [self] in
             memory.receive(replay)
             memory.waitForPendingOutput()
@@ -383,6 +390,15 @@ final class TerminalPipe: @unchecked Sendable {
         client?.fire(.init(op: "flow", term: termID, pause: pause))
     }
 
+    /// Too much output waiting: a terminal of this Mac fails, having paused its PTY to no avail; a
+    /// guest, which pauses nothing, sheds what it holds and reconnects through the disconnect path.
+    private func overflowLocked(_ message: String) {
+        guard guest else { failLocked(message); return }
+        shedding = true
+        buffered.removeAll()
+        client?.close()
+    }
+
     private func failLocked(_ message: String) {
         guard !failed else { return }
         failed = true
@@ -456,7 +472,9 @@ final class TerminalPipe: @unchecked Sendable {
     func freezeForReconnect() -> Bool {
         lock.lock(); defer { lock.unlock() }
         let idleInput = input?.freezeForReconnect() == true
-        let safe = !failed && !ended && !attaching && inputEnqueues == 0 && idleInput
+        // A guest shed while attaching has nothing unsettled: no input goes out until the replay is
+        // done, and the reconnect attaches again at the terminal's current screen.
+        let safe = !failed && !ended && (!attaching || shedding) && inputEnqueues == 0 && idleInput
         failed = true
         buffered.removeAll()
         if paused { flowLocked(false) }

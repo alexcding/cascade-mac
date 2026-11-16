@@ -17,6 +17,10 @@
 // Protocol 2 extension: hello {eventScope:"attached"} narrows one connection's events to the
 // terminals it has created, attached to or begun a snapshot of; "all", the default, hears every one.
 // Hello answers with the scope in force, and a daemon that predates it omits the field.
+// Protocol 2 extension: hello {backpressure:false} makes a connection a viewer that never holds a
+// terminal up: its flow pauses are ignored and its backlog pauses no reads, so a viewer that falls
+// behind is dropped (OUTBOX_MAX, STALL_DROP) and reattaches rather than freezing the terminal for
+// everyone. Another Mac watching through the backend's relay is one; hello answers the setting.
 // Protocol 2 extension: create {opts:{startupCommand}} has a zsh run that command once its startup
 // files have loaded; hello answers "startupCommand":true, and any other shell refuses the create.
 // A request without "id" gets no response (writes/resizes/flow are fire-and-forget).
@@ -34,7 +38,7 @@
 //     client that hears a terminal owes more than BACKLOG_HIGH, that terminal's reads pause (resuming
 //     below BACKLOG_LOW), so a slow viewer bounds memory instead of growing it, and holds up only
 //     what it hears. The renderer can also ask for a pause directly ("flow") when its xterm write
-//     buffer runs ahead.
+//     buffer runs ahead. A connection that said hello {backpressure:false} does neither.
 //
 // On disk (for inspection / scripting; the daemon itself is the source of truth):
 //   <dir>/terms/<id>.json   manifest — cwd, title, pairKey, hasContext, shell pid, created
@@ -399,11 +403,12 @@ impl TerminalProfile {
 // A connected client: lines go through `tx` to its outbox thread, which is the ONLY writer on the
 // socket (responses and events share it, so frames never interleave). `owed` is the byte budget.
 // `terminals` are those it has created, attached to or begun a snapshot of: all it hears unless
-// `hears_all`.
+// `hears_all`. `backpressure` is whether it may hold a terminal up (flow pauses, backlog).
 struct Client {
   id: u64,
   byte_transport: bool,
   hears_all: bool,
+  backpressure: bool,
   terminals: HashSet<String>,
   tx: mpsc::Sender<Arc<str>>,
   owed: Arc<AtomicUsize>,
@@ -668,7 +673,7 @@ impl Daemon {
     let mut max_owed = 0;
     self.clients.lock().unwrap().retain(|c| {
       if !c.stalled() {
-        if heard.is_some_and(|id| c.hears(id)) { max_owed = max_owed.max(c.owed.load(Ordering::Relaxed)); }
+        if c.backpressure && heard.is_some_and(|id| c.hears(id)) { max_owed = max_owed.max(c.owed.load(Ordering::Relaxed)); }
         return true;
       }
       log(&format!("client {} dropped: stalled with {} bytes owed", c.id, c.owed.load(Ordering::Relaxed)));
@@ -1100,12 +1105,24 @@ impl Daemon {
     rx.recv().map_err(|_| "terminal exited before updating appearance".to_string())?
   }
 
-  // Renderer-driven flow control: pause PTY reads while its xterm write buffer runs ahead.
+  // Renderer-driven flow control: pause PTY reads while its xterm write buffer runs ahead. Not for
+  // a connection without backpressure: a viewer that cannot keep up must never freeze the terminal.
   fn flow(&self, cid: u64, id: &str, pause: bool) {
+    if !self.clients.lock().unwrap().iter().any(|c| c.id == cid && c.backpressure) { return; }
     if let Some(t) = self.terms.lock().unwrap().get_mut(id) {
       if pause { t.pause_owners.insert(cid); } else { t.pause_owners.remove(&cid); }
       t.paused.store(!t.pause_owners.is_empty(), Ordering::Relaxed);
       poke(t.wake_w);
+    }
+  }
+
+  // Drops every flow pause client `cid` holds. Takes `terms` alone: never call with `clients` held.
+  fn release_pauses(&self, cid: u64) {
+    for t in self.terms.lock().unwrap().values_mut() {
+      if t.pause_owners.remove(&cid) {
+        t.paused.store(!t.pause_owners.is_empty(), Ordering::Relaxed);
+        poke(t.wake_w);
+      }
     }
   }
 
@@ -1225,10 +1242,15 @@ impl Daemon {
             _ => return Err("unsupported event scope".into()),
           }
         }
+        // Read now, applied once nothing below can refuse the hello: a refused one changes nothing.
+        let backpressure = match req.get("backpressure") {
+          Some(value) => value.as_bool().ok_or("backpressure must be a boolean")?,
+          None => client.backpressure,
+        };
         let encoding = if client.byte_transport { "base64" } else { "utf8" };
         let scope = if client.hears_all { "all" } else { "attached" };
         #[allow(unused_mut)]
-        let mut hello = json!({ "protocol": PROTOCOL, "pid": std::process::id(), "version": env!("CARGO_PKG_VERSION"), "dataEncoding": encoding, "eventScope": scope, "acknowledgedInput": true, "startupCommand": true });
+        let mut hello = json!({ "protocol": PROTOCOL, "pid": std::process::id(), "version": env!("CARGO_PKG_VERSION"), "dataEncoding": encoding, "eventScope": scope, "acknowledgedInput": true, "startupCommand": true, "backpressure": backpressure });
         #[cfg(feature = "terminal-snapshots")]
         {
           _session.snapshot_negotiated = false;
@@ -1246,6 +1268,10 @@ impl Daemon {
             _session.snapshot_negotiated = true;
           }
         }
+        client.backpressure = backpressure;
+        // A pause asked before backpressure went off could no longer be released by its own flow.
+        drop(clients);
+        if !backpressure { self.release_pauses(cid); }
         Ok(hello)
       }
       "create" => {
@@ -1330,7 +1356,7 @@ impl Daemon {
     let (tx, rx) = mpsc::channel::<Arc<str>>();
     let owed = Arc::new(AtomicUsize::new(0));
     let progress = Arc::new(Mutex::new(Instant::now()));
-    self.clients.lock().unwrap().push(Client { id: cid, byte_transport: false, hears_all: true, terminals: HashSet::new(), tx, owed: owed.clone(), progress: progress.clone(), sock });
+    self.clients.lock().unwrap().push(Client { id: cid, byte_transport: false, hears_all: true, backpressure: true, terminals: HashSet::new(), tx, owed: owed.clone(), progress: progress.clone(), sock });
     *self.idle_since.lock().unwrap() = None;
     log(&format!("client {cid} connected"));
 
@@ -1383,12 +1409,7 @@ impl Daemon {
     // untouched — that is the whole point.
     self.clients.lock().unwrap().retain(|c| c.id != cid);
     // Its flow pauses die with it — a paused PTY with no one to resume it would freeze forever.
-    for t in self.terms.lock().unwrap().values_mut() {
-      if t.pause_owners.remove(&cid) {
-        t.paused.store(!t.pause_owners.is_empty(), Ordering::Relaxed);
-        poke(t.wake_w);
-      }
-    }
+    self.release_pauses(cid);
     log(&format!("client {cid} disconnected"));
     self.note_idle();
   }

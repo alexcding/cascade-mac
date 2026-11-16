@@ -157,15 +157,19 @@ work and why it is the fallback.
 
 Route: `GET /pty` WebSocket on the remote listener. The bridge opens one Unix-socket
 connection to ptyd per WebSocket, sends its own `hello` (protocol 2, base64, `eventScope:
-"attached"`, no snapshot revision), and then forwards frames both ways with an op filter:
+"attached"`, `backpressure: false`, no snapshot revision), and then forwards frames both ways
+with an op filter:
 
 | Op | Allowed |
 |---|---|
-| `list`, `attach`, `write`, `resize`, `flow`, `foreground` | yes |
-| `create`, `kill`, `killAll`, `appearance`, `snapshot*`, `hello` | no (`hello` is the bridge's own) |
+| `list`, `attach`, `write`, `resize`, `foreground` | yes |
+| `create`, `kill`, `killAll`, `appearance`, `flow`, `snapshot*`, `hello` | no (`hello` is the bridge's own) |
 
-Frame size and outbox limits come from ptyd itself (2 MiB frames, 8 MiB outbox, stalled
-clients dropped), so a slow phone cannot stall the Mac's terminals.
+A remote viewer never holds a terminal up: with `backpressure: false` ptyd neither pauses the
+PTY for its backlog nor takes a `flow` pause from it, and the bridge drops `flow`. Frame size and
+outbox limits come from ptyd itself (2 MiB frames, 8 MiB outbox, stalled clients dropped), so a
+slow phone is disconnected and reattaches rather than stalling the Mac's terminals. (The Mac-to-Mac
+relay, `remote/terminal.rs`, follows the same rule.)
 
 Phone side: a `PtyProtocol`-compatible client over `URLSessionWebSocketTask` (the Swift
 types in `PtyProtocol.swift` move to the shared package) and SwiftTerm as the renderer.

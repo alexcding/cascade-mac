@@ -8,6 +8,10 @@
 //!   a paired Mac watches and types into a terminal at the size this Mac gives it.
 //! - `hello` is narrowed to the terminals the connection attached to (`eventScope: attached`), so
 //!   it hears no other terminal's output.
+//! - A paired Mac never holds a terminal up (`backpressure: false`, and no `flow`): one that falls
+//!   behind — asleep, in the background, on a slow network — would otherwise pause the PTY, and
+//!   this Mac's own terminal froze until the paired Mac caught up. It is dropped instead, and
+//!   attaches again at the terminal's current screen.
 //! - `list` answers only session terminals (paired, keyed by a session this Mac has), and an op
 //!   naming a terminal is refused unless a `list` on this connection answered it.
 //!
@@ -37,8 +41,8 @@ pub(crate) const UPGRADE: &str = "cascade-pty";
 pub(crate) const TERMINALS: usize = if cfg!(test) { 2 } else { 8 };
 
 /// The ops a paired Mac may send, and of them the ones that name a terminal.
-pub(crate) const OPS: &[&str] = &["hello", "list", "attach", "write", "flow", "foreground", "snapshotBegin", "snapshotRead", "snapshotEnd"];
-const TERM_OPS: &[&str] = &["attach", "write", "flow", "foreground", "snapshotBegin"];
+pub(crate) const OPS: &[&str] = &["hello", "list", "attach", "write", "foreground", "snapshotBegin", "snapshotRead", "snapshotEnd"];
+const TERM_OPS: &[&str] = &["attach", "write", "foreground", "snapshotBegin"];
 
 /// The most requests one connection may have waiting on the daemon, and the longest id one may
 /// be asked with (a number, or a string this long), so what is kept for them stays small.
@@ -107,10 +111,10 @@ fn refuse(id: Option<&Value>, message: &str) -> Verdict {
 }
 
 /// The relay's own first line to the daemon, before anything of the paired Mac's: the daemon
-/// starts a connection hearing every terminal, and this narrows it to the ones it attaches to.
-/// Without an id, so the daemon sends no answer.
+/// starts a connection hearing every terminal and holding up what it hears, and this narrows it to
+/// the ones it attaches to and lets it hold up none. Without an id, so the daemon sends no answer.
 pub(crate) fn opening() -> Vec<u8> {
-    line(&json!({ "op": "hello", "eventScope": "attached" }))
+    line(&json!({ "op": "hello", "eventScope": "attached", "backpressure": false }))
 }
 
 fn judge(seen: &Mutex<Seen>, raw: &[u8]) -> Verdict {
@@ -131,6 +135,7 @@ fn judge(seen: &Mutex<Seen>, raw: &[u8]) -> Verdict {
     }
     if op == "hello" {
         request.insert("eventScope".into(), json!("attached"));
+        request.insert("backpressure".into(), json!(false));
     }
     if let Some(id) = id {
         let short = match &id {
@@ -333,7 +338,7 @@ pub(crate) mod filter_tests {
     #[test]
     fn only_the_listed_ops_pass() {
         let seen = seen(&["pty1"]);
-        for op in ["create", "kill", "killAll", "resize", "appearance", "unknown"] {
+        for op in ["create", "kill", "killAll", "resize", "appearance", "flow", "unknown"] {
             match judge(&seen, json!({ "id": 7, "op": op, "term": "pty1" }).to_string().as_bytes()) {
                 Verdict::Refuse(bytes) => assert_eq!(parsed(&bytes)["id"], 7),
                 other => panic!("{op}: {other:?}"),
@@ -341,6 +346,8 @@ pub(crate) mod filter_tests {
         }
         // A refused request that wants no answer gets none.
         assert_eq!(judge(&seen, br#"{"op":"resize","term":"pty1","cols":10,"rows":10}"#), Verdict::Drop);
+        // A paired Mac's pause is not sent on: it would freeze this Mac's terminal too.
+        assert_eq!(judge(&seen, br#"{"op":"flow","term":"pty1","pause":true}"#), Verdict::Drop);
         assert_eq!(judge(&seen, b"[1,2]"), Verdict::Drop);
         // An id too long to keep is not sent on, nor answered.
         let long = json!({ "id": "x".repeat(ID + 1), "op": "write", "term": "pty1", "data": "ls" });
@@ -363,10 +370,11 @@ pub(crate) mod filter_tests {
     #[test]
     fn hello_hears_only_attached_terminals() {
         let seen = seen(&[]);
-        let hello = passed(judge(&seen, br#"{"id":1,"op":"hello","dataEncoding":"base64","eventScope":"all"}"#));
+        let hello = passed(judge(&seen, br#"{"id":1,"op":"hello","dataEncoding":"base64","eventScope":"all","backpressure":true}"#));
         assert_eq!(hello["eventScope"], "attached");
+        assert_eq!(hello["backpressure"], false);
         assert_eq!(hello["dataEncoding"], "base64");
-        assert_eq!(parsed(&opening()), json!({ "op": "hello", "eventScope": "attached" }));
+        assert_eq!(parsed(&opening()), json!({ "op": "hello", "eventScope": "attached", "backpressure": false }));
     }
 
     #[test]
