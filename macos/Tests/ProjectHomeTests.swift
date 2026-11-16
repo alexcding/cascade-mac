@@ -87,7 +87,7 @@ private let homeProject = Project(id: "home", name: "Home", repo: "o/r", color: 
     #expect(await operations.drafts.last.map { ($0.branch, $0.createBranch) } ?? ("", true) == ("develop", false))
     #expect(created().last.map { $0.1 == nil } == true, "An existing branch starts with no prompt")
     model.select(.shell)
-    #expect(!model.canStart && model.hint == nil, "Shell only needs a branch name too")
+    #expect(model.canStart && model.hint == nil, "Shell with nothing typed starts on a fresh branch")
     model.text = "feature/new thing"
     await model.submit()
     #expect(await operations.drafts.last.map { ($0.branch, $0.createBranch, $0.agent) } ?? ("", false, .claude) == ("feature/new-thing", true, .shell))
@@ -195,7 +195,7 @@ private let homeProject = Project(id: "home", name: "Home", repo: "o/r", color: 
     let operations = StartOperations()
     await operations.fail("No worktree")
     let (model, created) = await composer(operations)
-    #expect(!model.canStart)
+    #expect(model.canStart, "nothing typed starts a session too")
     model.text = "Try this"
     await model.submit()
     #expect(model.text == "Try this" && model.error == "No worktree" && created().isEmpty && !model.creating)
@@ -244,4 +244,17 @@ private let homeProject = Project(id: "home", name: "Home", repo: "o/r", color: 
     #expect(model.branches.contains("from-origin") && model.remoteBranches.contains("from-origin"))
     #expect(!model.remoteBranches.contains("main"))
     #expect(await operations.fetches == 1, "Opened again while the fetch runs, the picker starts no second one")
+}
+
+@MainActor @Test func nothingTypedStartsASessionOnAFreshBranchWithNoPrompt() async throws {
+    let operations = StartOperations()
+    let (model, created) = await composer(operations)
+    #expect(model.text.isEmpty && model.canStart, "a session may start with nothing typed")
+    await model.submit()
+    let draft = await operations.drafts.last
+    #expect(draft.map { ($0.branch, $0.createBranch, $0.title) } ?? ("", false, "x") == ("session", true, ""))
+    #expect(created().last.map { $0.1 == nil } == true, "nothing typed is no first prompt")
+    model.select(.shell)
+    await model.submit()
+    #expect(await operations.drafts.last.map { ($0.branch, $0.createBranch, $0.agent) } ?? ("", false, .claude) == ("session", true, .shell))
 }

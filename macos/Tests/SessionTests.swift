@@ -80,7 +80,7 @@ private final class SessionHTTPFixture: URLProtocol, @unchecked Sendable {
     var created = 0
     model.onAction = { _ in created += 1 }
     await model.loadReferences()
-    #expect(model.hint == nil && !model.canStart, "Nothing typed, nothing to say or start")
+    #expect(model.hint == nil && model.canStart, "Nothing typed: nothing to say, and a fresh branch to start on")
     model.text = "https://example.com/not-a-page"
     #expect(model.hint?.isError == true && !model.canStart)
     model.text = "https://jira.test/browse/RECORD-12"

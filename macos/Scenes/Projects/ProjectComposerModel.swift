@@ -102,7 +102,8 @@ import Observation
     /// The field holds nothing but an address: one that names no page is then a mistake, not a task.
     private(set) var loneAddress = false
     /// Text that names a branch rather than a task: with Shell only, or one the repository has.
-    private var namesBranch: Bool { page == nil && !urlish && (agent == .shell || branches.contains(typed)) }
+    /// Nothing typed names none: the session gets a fresh branch of its own.
+    private var namesBranch: Bool { !typed.isEmpty && page == nil && !urlish && (agent == .shell || branches.contains(typed)) }
     var showsPullRequestBranch: Bool { unresolvedPullRequest && page != nil }
     /// A link is typed: it names its own branch, so the chooser picks only what a new branch forks from.
     var linkTyped: Bool { urlish }
@@ -115,7 +116,8 @@ import Observation
     private var awaitingChoice: Bool { choices[agent.rawValue]?.model != nil && loadingCatalogs.contains(agent.rawValue) }
     var canStart: Bool {
         guard !retired, operations != nil, !busy, !awaitingChoice, !project.workspace.isEmpty, !(loneAddress && page == nil) else { return false }
-        return usesExistingBranch ? !workBranch.isEmpty && owners[workBranch] == nil : !typed.isEmpty
+        // Nothing typed starts a session too, on a new branch named for none (`taskBranch`).
+        return usesExistingBranch ? !workBranch.isEmpty && owners[workBranch] == nil : true
     }
     /// Picks `branch` for what the chooser is choosing now; false when it can't be picked.
     @discardableResult func choose(_ branch: String) -> Bool {
@@ -446,8 +448,11 @@ import Observation
             creation.branch = branch; creation.createBranch = !branches.contains(branch)
         } else {
             creation.branch = taskBranch; creation.createBranch = true
-            creation.title = ProjectSessionStart.title(for: typed)
-            prompt = typed
+            // Nothing typed: a fresh branch, no title and no first prompt, the agent waiting.
+            if !typed.isEmpty {
+                creation.title = ProjectSessionStart.title(for: typed)
+                if agent != .shell { prompt = typed }
+            }
         }
         guard !retired, !Task.isCancelled, inputGeneration == generation else { return }
         // A ticket the row's pull request references, when the lookup names none.
