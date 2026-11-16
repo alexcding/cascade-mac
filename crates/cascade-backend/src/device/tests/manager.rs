@@ -634,8 +634,14 @@ async fn lets_an_in_flight_tool_finish_after_its_turn_ends_without_leaking_the_s
 async fn rechecks_ownership_after_the_stream_teardown_before_shutting_down() {
     let (backend, manager) = setup();
     manager.boot(DEVICE_A).await.unwrap();
+    // A user's pane starts the stream and leaves it to the agent's attachment: a background agent
+    // alone no longer starts one.
+    manager.attach(OWNER_B, DEVICE_A).await;
     use_device(&manager, OWNER_A, DEVICE_A, "ending-turn").await;
-    until("the agent's stream", || backend.has_stream(DEVICE_A)).await;
+    until("the stream", || backend.has_stream(DEVICE_A)).await;
+    manager.detach(OWNER_B).await;
+    settle().await;
+    assert!(backend.has_stream(DEVICE_A), "the agent's attachment keeps the stream it found");
     let (detaching, finish) = backend.hold_detach(DEVICE_A);
 
     manager.end_agent_turn(turn(OWNER_A, "ending-turn")).await;
@@ -1186,13 +1192,31 @@ async fn stops_recordings_on_user_owned_devices_when_the_manager_disposes() {
 // ── Agent auto-attach ──────────────────────────────────────────────────
 
 #[tokio::test(start_paused = true)]
-async fn attaches_an_unattached_owner_to_the_device_the_agent_is_using() {
+async fn keeps_background_agent_control_available_and_starts_video_only_when_a_pane_watches() {
     let (backend, manager) = booted().await;
 
     manager.ensure_attached(OWNER_A, DEVICE_A).await;
+    settle().await;
 
+    // Attached, so the pane shows the device the agent drives, but nobody watches it yet: input and
+    // reads work without the encoder running (Synara c96b82879).
+    let state = manager.owner_state(OWNER_A).await;
+    assert_eq!(state.attached_device_udid.as_deref(), Some(DEVICE_A));
+    assert_eq!(state.attach_phase, None);
+    assert!(!backend.has_stream(DEVICE_A));
+    assert_eq!(backend.count("attachStream"), 0);
+    manager.tap(DEVICE_A, 0.5, 0.5, None).await.unwrap();
+    assert_eq!(manager.describe_ui(DEVICE_A).await.unwrap().udid, DEVICE_A);
+
+    let viewer = manager.subscribe_frames(DEVICE_A).await;
+    until("the viewer's stream", || backend.has_stream(DEVICE_A)).await;
+
+    drop(viewer);
+    until("the stream to stop", || !backend.has_stream(DEVICE_A)).await;
+    manager.tap(DEVICE_A, 0.25, 0.25, None).await.unwrap();
+    assert_eq!(backend.count("tap"), 2);
     assert_eq!(manager.owner_state(OWNER_A).await.attached_device_udid.as_deref(), Some(DEVICE_A));
-    until("the stream", || backend.has_stream(DEVICE_A)).await;
+    manager.dispose().await;
 }
 
 #[tokio::test(start_paused = true)]
@@ -1249,7 +1273,7 @@ async fn requests_the_pane_once_no_matter_how_often_the_agent_surfaces() {
     settle().await;
 
     assert_eq!(open_pane_udids(&drain(&mut events)).len(), 1);
-    assert_eq!(backend.count("attachStream"), 1);
+    assert_eq!(backend.count("attachStream"), 0);
 }
 
 #[tokio::test(start_paused = true)]
@@ -1861,6 +1885,54 @@ async fn clears_with_select_all_and_delete_and_submits_with_return() {
         .collect();
     assert_eq!(keys, [(0x04, vec![DeviceKeyModifier::Command]), (0x2a, vec![]), (0x28, vec![])]);
     assert_eq!(typed(&backend).last().map(String::as_str), Some("query"));
+}
+
+#[tokio::test(start_paused = true)]
+async fn releases_a_pressed_key_even_when_the_call_that_pressed_it_is_dropped() {
+    let (backend, manager) = booted().await;
+    let (releasing, release) = backend.hold_key_up(DEVICE_A);
+
+    let entry = {
+        let manager = manager.clone();
+        tokio::spawn(async move { manager.enter_text(DEVICE_A, "", TextEntryOptions { submit: true, ..TextEntryOptions::default() }).await })
+    };
+    reached("the key-up", &releasing).await;
+    entry.abort();
+    assert!(entry.await.unwrap_err().is_cancelled());
+    release.notify_one();
+
+    // Return went down, so it comes back up: a key left held repeats on the simulator.
+    let up = |backend: &FakeDeviceBackend| {
+        backend.calls_of("keyEvent").into_iter().any(|call| {
+            matches!(call, FakeCall::KeyEvent { event, .. } if event.direction == DeviceKeyDirection::Up && event.key_code == 0x28)
+        })
+    };
+    until("the key-up after the drop", || up(&backend)).await;
+}
+
+#[tokio::test]
+async fn finishes_a_chord_whose_call_is_dropped_while_the_key_goes_down() {
+    let (backend, manager) = booted().await;
+    let (pressing, press) = backend.hold_key_down(DEVICE_A);
+
+    // Clearing presses ⌘A first: drop the entry while that key-down is still on its way.
+    let entry = {
+        let manager = manager.clone();
+        tokio::spawn(async move { manager.enter_text(DEVICE_A, "", TextEntryOptions { clear: true, ..TextEntryOptions::default() }).await })
+    };
+    reached("the key-down", &pressing).await;
+    entry.abort();
+    assert!(entry.await.unwrap_err().is_cancelled());
+    press.notify_one();
+
+    // The press runs to its end: ⌘A goes down and comes back up, so nothing stays held.
+    let pressed = |backend: &FakeDeviceBackend, direction: DeviceKeyDirection| {
+        backend.calls_of("keyEvent").into_iter().any(|call| {
+            matches!(call, FakeCall::KeyEvent { event, .. } if event.direction == direction && event.key_code == 0x04)
+        })
+    };
+    until("the key-up after the drop", || pressed(&backend, DeviceKeyDirection::Up)).await;
+    assert!(pressed(&backend, DeviceKeyDirection::Down));
 }
 
 // ── Observing launches and late transitions ────────────────────────────

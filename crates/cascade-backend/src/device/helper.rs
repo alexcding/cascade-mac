@@ -402,7 +402,12 @@ impl HelperClient {
                 "Device helper reported no usable screen geometry",
             ));
         }
-        self.shared.state.lock().unwrap().attachment = Some(attachment.clone());
+        let mut state = self.shared.state.lock().unwrap();
+        // Disposed while the answer was on its way: a retired helper keeps no attachment.
+        if state.disposed {
+            return Err(DeviceHelperError::disposed());
+        }
+        state.attachment = Some(attachment.clone());
         Ok(attachment)
     }
 
@@ -459,8 +464,18 @@ impl HelperClient {
             }
             drop(connection);
         });
-        // A stream started meanwhile (two devices attached at once) is replaced, not leaked.
-        let replaced = self.shared.state.lock().unwrap().frame_server.replace(FrameServer { directory, accept });
+        // A stream started meanwhile (two devices attached at once) is replaced, not leaked; one
+        // that would outlive a disposal is not left listening.
+        let server = FrameServer { directory, accept };
+        let replaced = {
+            let mut state = self.shared.state.lock().unwrap();
+            if state.disposed {
+                drop(state);
+                server.close();
+                return Err(DeviceHelperError::disposed());
+            }
+            state.frame_server.replace(server)
+        };
         if let Some(replaced) = replaced {
             replaced.close();
         }
@@ -483,20 +498,27 @@ impl HelperClient {
         self.close_frame_socket();
     }
 
-    /// Stops the stream, fails what is in flight, closes stdin and ends the process.
+    /// Fails what is in flight, closes the frame socket and stdin, and ends the process. It asks
+    /// the helper nothing: a retiring helper's reply cannot be waited on, and it tears its stream
+    /// down on SIGTERM. A second call does nothing.
     pub async fn dispose(&self) {
-        self.shared.state.lock().unwrap().disposed = true;
-        self.stop_stream().await;
-        let process = {
+        let (process, server) = {
             let mut state = self.shared.state.lock().unwrap();
+            if state.disposed {
+                return;
+            }
+            state.disposed = true;
             for (_, pending) in state.pending.drain() {
                 let _ = pending.send(Err(DeviceHelperError::disposed()));
             }
             state.generation += 1;
             state.attachment = None;
             state.exited = true;
-            state.process.take()
+            (state.process.take(), state.frame_server.take())
         };
+        if let Some(server) = server {
+            server.close();
+        }
         if let Some(mut process) = process {
             drop(process.writer.take());
             (process.terminate)();

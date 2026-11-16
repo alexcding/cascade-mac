@@ -68,7 +68,8 @@ use super::{
 const SIMCTL_TIMEOUT: Duration = Duration::from_secs(30);
 /// How long one `simctl list devices` answer serves repeat callers.
 const DEVICE_LIST_CACHE: Duration = Duration::from_millis(1_500);
-/// How long the machine-wide `xcode-select -p` answer is reused.
+/// How long the machine-wide `xcode-select -p` answer is reused, and the helper's cache key with
+/// it for the same `DEVELOPER_DIR`.
 const XCODE_SELECT_CACHE: Duration = Duration::from_secs(15);
 const BOOT_TIMEOUT: Duration = Duration::from_secs(120);
 const PROBE_TIMEOUT: Duration = Duration::from_secs(30);
@@ -236,6 +237,9 @@ struct State {
     /// Geometry learned from helper attachments.
     device_geometry: HashMap<String, DeviceGeometry>,
     xcode_select: Option<(Instant, Option<String>)>,
+    /// The helper's cache key, when it was read and the `DEVELOPER_DIR` it was read under: every
+    /// capability check before a native action asks for it.
+    xcode_build_key: Option<(Instant, Option<String>, String)>,
     /// One `/Applications` scan per backend.
     xcode_discovery: Option<Option<String>>,
     /// Bumped by every simctl command that may change the device list.
@@ -973,14 +977,26 @@ impl IosSimulatorBackend {
     /// One USB HID usage per call, with held modifiers tracked by the helper, so a chord is sent
     /// as its modifier keys and then the main key.
     pub async fn key_event(&self, udid: &str, event: &DeviceKeyEvent) -> DeviceResult<()> {
-        for modifier in &event.modifiers {
-            let Some(usage) = hid_modifier_usage(*modifier) else { continue };
-            self.inject_input(udid, methods::KEY, |_| Ok(json!({ "usage": usage, "phase": event.direction.as_str() })))
-                .await?;
+        let phase = event.direction.as_str();
+        let mut usages: Vec<u16> = event.modifiers.iter().filter_map(|modifier| hid_modifier_usage(*modifier)).collect();
+        usages.push(event.key_code);
+        let rest = usages.split_off(1);
+        self.inject_input(udid, methods::KEY, |_| Ok(json!({ "usage": usages[0], "phase": phase }))).await?;
+        if rest.is_empty() {
+            return Ok(());
         }
-        self.inject_input(udid, methods::KEY, |_| Ok(json!({ "usage": event.key_code, "phase": event.direction.as_str() })))
-            .await
-            .map(drop)
+        // Once the chord's first event is delivered the chord is finished, on a task of its own
+        // that a dropped call does not take with it: half a chord leaves a modifier held.
+        let this = self.this.upgrade().ok_or_else(Self::disposed_error)?;
+        let udid = udid.to_owned();
+        spawn_inheriting(async move {
+            for usage in rest {
+                this.inject_input(&udid, methods::KEY, |_| Ok(json!({ "usage": usage, "phase": phase }))).await?;
+            }
+            Ok(())
+        })
+        .await
+        .unwrap_or_else(|error| Err(DeviceBackendError::new(format!("The key event did not finish: {error}"))))
     }
 
     pub async fn press_button(&self, udid: &str, button: DeviceHardwareButton) -> DeviceResult<()> {
@@ -1603,10 +1619,19 @@ impl IosSimulatorBackend {
     /// helper fix invalidates the cache the way an Xcode upgrade does. Not recorded as a helper
     /// failure here: this runs on every cache lookup, and one slow call would otherwise leave the
     /// pane on "helper unavailable" until restart.
+    /// An answer is reused for the same `DEVELOPER_DIR` within the Xcode lookup window (Synara
+    /// `xcodeBuildKeyCache`); a failure is not kept.
     async fn xcode_build_key(&self) -> DeviceResult<String> {
-        let env = self.toolchain_env().await;
+        let developer_dir = self.xcode_select_path().await;
+        if let Some((at, dir, key)) = &self.state.lock().unwrap().xcode_build_key {
+            if *dir == developer_dir && at.elapsed() < XCODE_SELECT_CACHE {
+                return Ok(key.clone());
+            }
+        }
+        let env: Vec<(String, String)> =
+            developer_dir.iter().map(|dir| ("DEVELOPER_DIR".to_owned(), dir.clone())).collect();
         let result = process::run("xcodebuild", &["-version".to_owned()], Duration::from_secs(20), &env).await.ok();
-        result
+        let key = result
             .filter(RunResult::succeeded)
             .and_then(|result| device_helper_cache_key(&result.stdout, Some(&vendored_source_revision())))
             .ok_or_else(|| {
@@ -1614,7 +1639,9 @@ impl IosSimulatorBackend {
                     "Could not determine the Xcode version. Install Xcode and run: sudo xcode-select -s \
                      /Applications/Xcode.app/Contents/Developer",
                 )
-            })
+            })?;
+        self.state.lock().unwrap().xcode_build_key = Some((Instant::now(), developer_dir, key.clone()));
+        Ok(key)
     }
 }
 

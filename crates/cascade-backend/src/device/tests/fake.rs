@@ -3,7 +3,7 @@
 //! made to fail once, and the screen is a small fixed app with a virtualized list below the fold.
 //! Where Synara's tests replace a method on the instance, this fake takes a hook instead
 //! (`transform_tree`, `fail_listing`, `hold_attach`, `hold_boot`, `hold_shutdown`,
-//! `hold_detach`).
+//! `hold_detach`, `hold_key_up`, `hold_key_down`).
 
 use std::{
     collections::{HashMap, HashSet},
@@ -14,7 +14,7 @@ use tokio::sync::{broadcast, Notify};
 
 use crate::device::{
     backend::{
-        BoxFuture, DeviceBackend, DeviceBackendError, DeviceConfiguration, DeviceFrameRecord, DeviceKeyEvent,
+        BoxFuture, DeviceBackend, DeviceBackendError, DeviceConfiguration, DeviceFrameRecord, DeviceKeyDirection, DeviceKeyEvent,
         DeviceLaunchOptions, DeviceListOptions, DeviceLogQuery, DeviceLogResult, DeviceResult, DeviceScreenshotCapture,
         DeviceScreenshotOptions, DeviceStreamFrame, DeviceStreamInterruption, DeviceSwipeGesture, DeviceTouchPhase, DeviceTypeTextOutcome,
     },
@@ -147,6 +147,8 @@ struct Fake {
     boot_holds: HashMap<String, (Arc<Notify>, Arc<Notify>)>,
     shutdown_holds: HashMap<String, (Arc<Notify>, Arc<Notify>)>,
     detach_holds: HashMap<String, (Arc<Notify>, Arc<Notify>)>,
+    key_up_holds: HashMap<String, (Arc<Notify>, Arc<Notify>)>,
+    key_down_holds: HashMap<String, (Arc<Notify>, Arc<Notify>)>,
 }
 
 pub struct FakeDeviceBackend {
@@ -222,6 +224,8 @@ impl FakeDeviceBackend {
                 boot_holds: HashMap::new(),
                 shutdown_holds: HashMap::new(),
                 detach_holds: HashMap::new(),
+                key_up_holds: HashMap::new(),
+                key_down_holds: HashMap::new(),
             }),
             frames,
             interruptions,
@@ -375,6 +379,21 @@ impl FakeDeviceBackend {
     pub fn hold_detach(&self, udid: &str) -> (Arc<Notify>, Arc<Notify>) {
         let hold = (Arc::new(Notify::new()), Arc::new(Notify::new()));
         self.state.lock().unwrap().detach_holds.insert(udid.to_owned(), hold.clone());
+        hold
+    }
+
+    /// Holds the next key-up `key_event` of `udid`, as `hold_shutdown` holds a poweroff. The call
+    /// is recorded once it goes on.
+    pub fn hold_key_up(&self, udid: &str) -> (Arc<Notify>, Arc<Notify>) {
+        let hold = (Arc::new(Notify::new()), Arc::new(Notify::new()));
+        self.state.lock().unwrap().key_up_holds.insert(udid.to_owned(), hold.clone());
+        hold
+    }
+
+    /// Holds the next key-down `key_event` of `udid`, as `hold_key_up` holds a key-up.
+    pub fn hold_key_down(&self, udid: &str) -> (Arc<Notify>, Arc<Notify>) {
+        let hold = (Arc::new(Notify::new()), Arc::new(Notify::new()));
+        self.state.lock().unwrap().key_down_holds.insert(udid.to_owned(), hold.clone());
         hold
     }
 
@@ -637,6 +656,17 @@ impl DeviceBackend for FakeDeviceBackend {
 
     fn key_event<'a>(&'a self, udid: &'a str, event: &'a DeviceKeyEvent) -> BoxFuture<'a, DeviceResult<()>> {
         Box::pin(async move {
+            let hold = {
+                let mut state = self.state.lock().unwrap();
+                match event.direction {
+                    DeviceKeyDirection::Up => state.key_up_holds.remove(udid),
+                    DeviceKeyDirection::Down => state.key_down_holds.remove(udid),
+                }
+            };
+            if let Some((started, release)) = hold {
+                started.notify_one();
+                release.notified().await;
+            }
             self.record(FakeCall::KeyEvent { udid: udid.to_owned(), event: event.clone() })?;
             self.require_booted(udid).map(|_| ())
         })

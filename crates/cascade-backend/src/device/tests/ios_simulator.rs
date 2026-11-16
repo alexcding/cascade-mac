@@ -38,12 +38,12 @@ use crate::{
     cli::{self, Failed, ScriptedRunner},
     device::{
         backend::{
-            DeviceAppearance, DeviceConfiguration, DeviceLaunchOptions, DeviceListOptions, DeviceLogLevel,
+            DeviceAppearance, DeviceConfiguration, DeviceKeyDirection, DeviceKeyEvent, DeviceLaunchOptions, DeviceListOptions, DeviceLogLevel,
             DeviceLogQuery, DevicePrivacyAction, DeviceScreenshotOptions,
         },
         cache::{device_helper_cache_key, vendored_source_revision, DEVICE_HELPER_BINARY_NAME},
         capabilities::probe_payload,
-        contracts::{DeviceAvailability, DeviceCapabilityId, DeviceCapabilityStatus, DeviceHardwareButton},
+        contracts::{DeviceAvailability, DeviceCapabilityId, DeviceCapabilityStatus, DeviceHardwareButton, DeviceKeyModifier},
         ios_simulator::{
             select_recording_directory, IosSimulatorBackend, IosSimulatorOptions, RecordingChild, RecordingSpawner,
         },
@@ -120,6 +120,8 @@ enum Reply {
     Error(i64, String),
     /// Never answered: a helper stalled on the request.
     Hang,
+    /// Answered once the notify lets it, as a helper still busy with the request would.
+    Gated(Arc<Notify>, Value),
 }
 
 impl Reply {
@@ -236,6 +238,10 @@ fn play_helper(spawner: ScriptedSpawner, side: Arc<HelperSide>) {
                     let reply = (side.handler.lock().unwrap())(&method, &params);
                     let answer = match reply {
                         Reply::Hang => continue,
+                        Reply::Gated(gate, result) => {
+                            gate.notified().await;
+                            json!({ "jsonrpc": "2.0", "id": request["id"], "result": result })
+                        }
                         Reply::Ok(result) => json!({ "jsonrpc": "2.0", "id": request["id"], "result": result }),
                         Reply::Error(code, message) => {
                             json!({ "jsonrpc": "2.0", "id": request["id"], "error": { "code": code, "message": message } })
@@ -1031,15 +1037,22 @@ mod capabilities {
     }
 
     #[tokio::test]
-    async fn probes_once_per_helper_binary_rather_than_on_every_availability_check() {
+    async fn reuses_the_helper_identity_and_probe_for_repeated_availability_checks_and_actions() {
         let (rig, backend) = rig_with(&all_ok());
+        let runner = runner();
 
-        cli::scoped(runner(), async {
+        cli::scoped(runner.clone(), async {
             backend.availability().await;
             backend.availability().await;
+            backend.tap(DEVICE, 10.0, 10.0, None).await.unwrap();
+            backend.describe_ui(DEVICE).await.unwrap();
         })
         .await;
 
+        // Two availability checks still validate the license; the cache lookups before every
+        // native action share one `xcodebuild -version` (Synara c96b82879).
+        let versions = runner.asked.lock().unwrap().iter().filter(|call| call.program == "xcodebuild").count();
+        assert_eq!(versions, 3);
         // The answer only changes when the toolchain does, and that produces a different binary path.
         let probes = rig.helper.probes();
         assert_eq!(probes.len(), 1);
@@ -1104,6 +1117,44 @@ mod capabilities {
             assert_eq!(backend.type_text(DEVICE, "hello").await.unwrap().skipped, 0);
         })
         .await;
+    }
+
+    #[tokio::test]
+    async fn finishes_a_chord_once_its_first_event_was_delivered_even_if_the_call_is_dropped() {
+        let (rig, backend) = rig_with(&all_ok());
+        let gate = Arc::new(Notify::new());
+        let keys = AtomicUsize::new(0);
+        let held = gate.clone();
+        rig.helper.on_request(move |method, _| {
+            // The second event of the chord is still on its way when the caller goes.
+            if method == "key" && keys.fetch_add(1, Ordering::SeqCst) == 1 {
+                return Reply::Gated(held.clone(), json!({ "ok": true }));
+            }
+            default_reply(method)
+        });
+        let chord = DeviceKeyEvent {
+            key_code: 0x04,
+            modifiers: vec![DeviceKeyModifier::Command, DeviceKeyModifier::Shift],
+            direction: DeviceKeyDirection::Down,
+        };
+
+        cli::scoped(runner(), async {
+            let mut pressing = Box::pin(backend.key_event(DEVICE, &chord));
+            drive_until(&mut pressing, || rig.helper.count("key") == 2).await;
+            drop(pressing);
+            gate.notify_one();
+            for _ in 0..1_000 {
+                if rig.helper.count("key") == 3 {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(2)).await;
+            }
+        })
+        .await;
+
+        // Command and Shift went down, so the main key follows: half a chord leaves them held.
+        let usages: Vec<Value> = rig.helper.requests_named("key").iter().map(|params| params["usage"].clone()).collect();
+        assert_eq!(usages, [json!(0xe3), json!(0xe1), json!(0x04)]);
     }
 
     #[tokio::test]

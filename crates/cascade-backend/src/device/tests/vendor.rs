@@ -29,7 +29,7 @@ fn files_on_disk(root: &Path, folder: &Path, found: &mut Vec<String>) {
 fn vendored_files_match_their_manifest() {
     let manifest: serde_json::Value =
         serde_json::from_slice(&std::fs::read(vendor_dir().join("MANIFEST.json")).unwrap()).unwrap();
-    assert_eq!(manifest["commit"], "566efb1b132b97a1d76e86229be8a177abb9e435");
+    assert_eq!(manifest["commit"], "c96b82879b4fe4b110133dac06ba6138a9d9761f");
     let listed: BTreeMap<String, String> = manifest["files"]
         .as_object()
         .unwrap()
@@ -66,7 +66,7 @@ fn the_crate_embeds_every_vendored_file_as_it_is_on_disk() {
 fn the_source_revision_is_the_one_synara_computes_for_this_tree() {
     // Synara's `readDeviceHelperSourceRevision` over the same `Sources/` and `build.sh`, run with
     // Node at the vendored commit; a changed tree changes the cache key, which is the point.
-    assert_eq!(vendored_source_revision(), "88efa594");
+    assert_eq!(vendored_source_revision(), "cbd3ee44");
 }
 
 #[test]

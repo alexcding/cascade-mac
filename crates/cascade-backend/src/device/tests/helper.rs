@@ -962,6 +962,45 @@ async fn a_failed_stream_start_closes_the_socket_and_reports_the_helpers_error()
 }
 
 #[tokio::test]
+async fn dispose_asks_a_streaming_helper_nothing_and_a_second_dispose_does_nothing() {
+    // A helper that never answers `stream.stop`: disposal waiting on it held quit up for the whole
+    // request timeout. The helper tears its stream down on SIGTERM (Synara c96b82879).
+    let h = harness(LONG, |request| match request.method.as_str() {
+        methods::STREAM_STOP => vec![],
+        _ => vec![ok(request, if request.method == methods::ATTACH { phone() } else { json!("ok") })],
+    });
+    h.client.start_stream(DEVICE).await.unwrap();
+    let folder = socket_directory(&h.requests());
+
+    tokio::time::timeout(SHORT, h.client.dispose()).await.expect("dispose does not wait on the helper");
+    tokio::time::timeout(SHORT, h.client.dispose()).await.expect("a second dispose returns at once");
+
+    assert_eq!(h.methods(), ["attach", "stream.start"]);
+    assert!(!folder.exists(), "dispose closes the frame socket");
+    assert!(!h.client.running());
+}
+
+#[tokio::test]
+async fn an_attach_answered_as_the_helper_is_disposed_keeps_no_attachment() {
+    use futures_util::FutureExt as _;
+
+    let h = harness(LONG, answering());
+    let client = h.client.clone();
+    let mut attaching = Box::pin(async move { client.attach(DEVICE, false).await });
+    assert!((&mut attaching).now_or_never().is_none(), "the attach waits for its answer");
+    while h.requests().is_empty() {
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    // The answer reaches the client before the attach looks at it again.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    h.client.dispose().await;
+
+    assert_eq!(error_of(attaching.await).code, "helper_disposed");
+    assert_eq!(h.client.attached_device(), None);
+}
+
+#[tokio::test]
 async fn stop_stream_without_a_stream_asks_the_helper_nothing() {
     let h = harness(LONG, answering());
 

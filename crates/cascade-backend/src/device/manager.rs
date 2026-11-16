@@ -1197,24 +1197,30 @@ impl DeviceManager {
             let (key, wanted) = (owner.clone(), udid.clone());
             let current = self
                 .with(move |state| {
-                    !state.disposed
-                        && state
-                            .owners
-                            .get(&key)
-                            .is_some_and(|attachment| attachment.token == token && attachment.attached.as_deref() == Some(wanted.as_str()))
+                    if state.disposed {
+                        return None;
+                    }
+                    state
+                        .owners
+                        .get(&key)
+                        .filter(|attachment| attachment.token == token && attachment.attached.as_deref() == Some(wanted.as_str()))
+                        .map(|attachment| attachment.source)
                 })
                 .await;
             // Superseded, detached or disposed: another attach owns this owner's state now.
-            if !current {
+            let Some(source) = current else {
                 if self.with(|state| state.disposed).await {
                     break;
                 }
                 return;
-            }
+            };
 
-            if self.would_steal_stream(&udid).await {
-                // Nobody watches this device yet, while another owner's viewers watch a different
-                // one on the helper's single stream: the stream starts when this one gets a viewer.
+            if (source == AttachmentSource::Agent && self.shared.transport.subscriber_count(&udid) == 0)
+                || self.would_steal_stream(&udid).await
+            {
+                // An agent at work in the background needs input and screenshots, not video: its
+                // capture waits for a pane to subscribe. Nor does an attach nobody watches take the
+                // helper's single stream from another owner's viewers: it starts with a viewer.
                 let key = owner.clone();
                 let cleared = self
                     .with(move |state| match state.owners.get_mut(&key) {
@@ -2059,9 +2065,18 @@ impl DeviceManager {
 
     async fn press_key(&self, udid: &str, key_code: u16, modifiers: Vec<DeviceKeyModifier>) -> DeviceResult<()> {
         let down = DeviceKeyEvent { key_code, modifiers: modifiers.clone(), direction: DeviceKeyDirection::Down };
-        self.with_device_action(udid, self.shared.backend.key_event(udid, &down)).await?;
         let up = DeviceKeyEvent { key_code, modifiers, direction: DeviceKeyDirection::Up };
-        self.with_device_action(udid, self.shared.backend.key_event(udid, &up)).await
+        // A key that went down must come back up, or the simulator holds it. Synara's press runs
+        // to the end whoever stops waiting; here the whole press, down and up, runs on a task of
+        // its own, so a call dropped at any point (a chord's modifier already down) takes neither
+        // half with it.
+        let (manager, udid) = (self.clone(), udid.to_owned());
+        tokio::spawn(async move {
+            manager.with_device_action(&udid, manager.shared.backend.key_event(&udid, &down)).await?;
+            manager.with_device_action(&udid, manager.shared.backend.key_event(&udid, &up)).await
+        })
+        .await
+        .unwrap_or_else(|error| Err(DeviceBackendError::new(format!("The key press did not finish: {error}"))))
     }
 
     // ── Observation ────────────────────────────────────────────────────

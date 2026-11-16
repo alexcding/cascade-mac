@@ -13,6 +13,30 @@ in `manager.rs` and `tools.rs`, its tests in `tests/manager.rs` and `tests/tools
 `ProviderRuntimeIngestion.ts` part, which tells the manager a turn settled, is `service.rs` and
 the turn hooks in `integrations.rs` (see "Turn leases" below).
 
+The helper itself is vendored from `c96b82879b4fe4b110133dac06ba6138a9d9761f` ("Keep simulator
+control active across chats and reduce helper overhead", the helper as v1.6.0 ships it), and of
+that commit's server changes these are ported:
+
+- `xcodeBuildKey`'s cache: the helper's cache key (`xcodebuild -version` and the source digest) is
+  reused for 15 seconds per `DEVELOPER_DIR` (`ios_simulator.rs` `xcode_build_key`), since every
+  capability check before a native action asks for it. An answer is kept, not a promise, and a
+  failure is not kept.
+- A key that went down comes up: `press_key` (`manager.rs`) runs the whole press, down and up, on
+  a task of its own, and `key_event` (`ios_simulator.rs`) the rest of a chord once its first event
+  was delivered, so a dropped call takes neither with it (Synara's press runs to its end whoever
+  stops waiting; its abort signal admits only a chord's first event).
+- A background agent gets no video: an agent's attachment with no pane subscribed does not start
+  the stream (`manager.rs` `bring_stream_up`); input and reads work without it, and the stream
+  starts when a viewer subscribes.
+- `HelperClient.dispose` asks the helper nothing (no `stream.stop`; the helper tears its stream
+  down on SIGTERM), closes the frame socket, and does nothing a second time; an `attach` answered
+  after disposal, and a stream's socket set up after it, are refused (`helper.rs`).
+
+Not ported: one helper per simulator (`SimulatorHelperSession`, with its per-session queue, the
+two-minute idle retirement and the five-second release of a failed attachment), the abort signals
+threaded through input, and the manager's disposal and switch reworks. `HEADER.md` describes the
+per-simulator helpers as Synara runs them; Cascade still runs one helper for every simulator.
+
 ## Vendored helper
 
 `vendor/synara-device-helper/` is `apps/server/native/device-helper/` (`build.sh`,
