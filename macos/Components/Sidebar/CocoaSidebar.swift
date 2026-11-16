@@ -643,9 +643,10 @@ enum SidebarPalette {
     static let text3 = dynamic(0x9298a3, 0x6e6e6e)     // --text-3
     /// A hover "+" at rest; the section headings and project folders share it.
     static let accessory = text3.withAlphaComponent(0.8)
-    /// A row's symbol: in light mode the idle status dot's grey (`text3`), rgb(146, 152, 163); in dark
-    /// rgb(180, 184, 191). No one system colour is both: secondary label resolves well dimmer than Finder in dark.
-    static let icon = dynamic(0x9298a3, 0xb4b8bf)
+    /// A row's symbol, menu rows and project folders alike: in light mode rgb(122, 128, 139), a step
+    /// darker than `text3`; in dark rgb(180, 184, 191). No one system colour is both: secondary label
+    /// resolves well dimmer than Finder in dark.
+    static let icon = dynamic(0x7a808b, 0xb4b8bf)
     /// An idle session's dot. A solid dot reads darker than a line icon of the same colour, whose thin
     /// strokes blend into the sidebar, so in light mode it is a step lighter than `icon`, to look the folder's grey.
     static let idle = dynamic(0xb3b7bf, 0x6e6e6e)
