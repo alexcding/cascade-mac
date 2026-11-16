@@ -49,8 +49,9 @@ final class TerminalPipe: @unchecked Sendable {
     ///
     /// Nor does it hold that Mac's terminal up: a pause asked from here would freeze it there too,
     /// for as long as this Mac drew slowly (in the background, napping), so it asks for none — that
-    /// Mac's relay passes none on either. Fallen too far behind, it reconnects and starts again
-    /// from the terminal's current screen.
+    /// Mac's relay passes none on either. Fallen too far behind once it has shown the terminal, it
+    /// reconnects and starts again from the terminal's current screen; behind on its very first
+    /// screen, it shows the error, as any first connect that fails does.
     private var guest = false
     private var latestAppearance: PtyAppearance?
     private let error: @Sendable (String) -> Void
@@ -473,7 +474,8 @@ final class TerminalPipe: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         let idleInput = input?.freezeForReconnect() == true
         // A guest shed while attaching has nothing unsettled: no input goes out until the replay is
-        // done, and the reconnect attaches again at the terminal's current screen.
+        // done. Mid-reconnect, that attempt is retried at the terminal's current screen; on the first
+        // connect there is no retry (`TerminalSession.connectionLost` waits for a terminal shown once).
         let safe = !failed && !ended && (!attaching || shedding) && inputEnqueues == 0 && idleInput
         failed = true
         buffered.removeAll()

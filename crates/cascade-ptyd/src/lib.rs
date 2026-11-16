@@ -1242,7 +1242,8 @@ impl Daemon {
             _ => return Err("unsupported event scope".into()),
           }
         }
-        // Read now, applied once nothing below can refuse the hello: a refused one changes nothing.
+        // Read now, applied once nothing below can refuse the hello: a refused one leaves backpressure
+        // as it was (the encoding and scope above are set before those refusals, as they always were).
         let backpressure = match req.get("backpressure") {
           Some(value) => value.as_bool().ok_or("backpressure must be a boolean")?,
           None => client.backpressure,
