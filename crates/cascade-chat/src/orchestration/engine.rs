@@ -38,7 +38,7 @@ use crate::{
         base::{now_iso, CheckpointRef, MessageId, ThreadId, TurnId},
         orchestration::*,
         provider::{ProviderTurnStartResult, ProviderSendTurnInput},
-        provider_runtime::ProviderRuntimeEvent,
+        provider_runtime::{ProviderRuntimeEvent, ProviderRuntimeEventBody},
     },
     persistence::store::{ChatStore, ProviderSessionRecord},
     provider::{
@@ -1141,7 +1141,7 @@ impl Actor {
     async fn on_runtime(&mut self, event: ProviderRuntimeEvent) {
         let thread_id = event.thread_id.clone();
         if let (Some(generation), Some(current)) = (&event.lifecycle_generation, self.generations.get(&thread_id)) {
-            if generation != current {
+            if generation != current && !is_superseded_subagent_settling_event(&event) {
                 return;
             }
         }
@@ -1551,6 +1551,37 @@ fn plan_orphaned_task_commands(thread: &OrchestrationThread, started_before: &st
         .collect()
 }
 
+/// Synara `isSubagentChildRuntimeEvent` (ProviderService.ts:816): subagent-scoped events name
+/// the parent thread but belong to a child thread (the child identity rides in providerRefs).
+fn is_subagent_child_runtime_event(event: &ProviderRuntimeEvent) -> bool {
+    let refs = event.provider_refs.as_ref();
+    match (refs.and_then(|r| r.provider_thread_id.as_ref()), refs.and_then(|r| r.provider_parent_thread_id.as_ref())) {
+        (Some(child), Some(parent)) => child != parent,
+        _ => false,
+    }
+}
+
+/// The subagent case of Synara's stale-generation gate (ProviderService.ts:2129, 9fd08c1ff and
+/// d453766b5): a superseded session's subagent turns have no newer owner, since the replacement
+/// session never resumes them and child events never touch the parent. Their settling events (a
+/// turn end, an interaction resolution, both naming a turn, and the tool rows the turn end
+/// closes) are the only thing that settles the child thread; an interrupt that rotated the
+/// generation would otherwise leave it running with live tool rows. Synara's other stale
+/// settling cases (no current generation, the binding's active turn) are not ported.
+fn is_superseded_subagent_settling_event(event: &ProviderRuntimeEvent) -> bool {
+    let settling = matches!(
+        event.body,
+        ProviderRuntimeEventBody::TurnCompleted(_)
+            | ProviderRuntimeEventBody::TurnAborted(_)
+            | ProviderRuntimeEventBody::SessionExited(_)
+            | ProviderRuntimeEventBody::RuntimeError(_)
+            | ProviderRuntimeEventBody::UserInputResolved(_)
+            | ProviderRuntimeEventBody::RequestResolved(_)
+    ) && event.turn_id.is_some();
+    is_subagent_child_runtime_event(event)
+        && (settling || matches!(event.body, ProviderRuntimeEventBody::ItemCompleted(_)))
+}
+
 /// A batch made only of streamed assistant text is saved on a timer rather than at once.
 /// The parent's turn a subagent's own event belongs to: the one running, else the last one.
 fn parent_source_turn(parent: &OrchestrationThread) -> Option<TurnId> {
@@ -1750,6 +1781,46 @@ mod tests {
             find_restart_orphaned_tasks(&activities, BOOT),
             [RestartOrphanedTask { task_id: "agent".into(), tool_use_id: None, workflow_task_id: None, turn_id: None }]
         );
+    }
+
+    fn stale_child_event(kind: &str, payload: Value, refs: Value) -> ProviderRuntimeEvent {
+        serde_json::from_value(json!({
+            "type": kind,
+            "eventId": format!("stale-{kind}"),
+            "provider": "codex",
+            "threadId": "thread-stale-subagent-child",
+            "turnId": "turn-child-synthetic",
+            "itemId": "toolu_child_bash",
+            "createdAt": "2026-07-14T14:00:00.000Z",
+            "lifecycleGeneration": "old-generation",
+            "providerRefs": refs,
+            "payload": payload,
+        }))
+        .unwrap()
+    }
+
+    /// Synara ProviderService.test.ts "settles a superseded session's subagent child turn"
+    /// (9fd08c1ff, d453766b5): an old generation's child turn end and the tool rows it closes are
+    /// accepted; its other events, and the parent's own, are not.
+    #[test]
+    fn a_superseded_sessions_subagent_settling_events_are_accepted() {
+        let child = json!({ "providerThreadId": "toolu_child", "providerParentThreadId": "thread-stale-subagent-child" });
+        let completed = stale_child_event("turn.completed", json!({ "state": "interrupted" }), child.clone());
+        assert!(is_superseded_subagent_settling_event(&completed));
+        let tool = stale_child_event(
+            "item.completed",
+            json!({ "itemType": "command_execution", "status": "failed", "title": "Command run" }),
+            child.clone(),
+        );
+        assert!(is_superseded_subagent_settling_event(&tool));
+        let delta = stale_child_event("content.delta", json!({ "streamKind": "assistant_text", "delta": "invisible" }), child);
+        assert!(!is_superseded_subagent_settling_event(&delta));
+        let parent = json!({ "providerThreadId": "thread-stale-subagent-child" });
+        assert!(!is_superseded_subagent_settling_event(&stale_child_event(
+            "turn.completed",
+            json!({ "state": "interrupted" }),
+            parent
+        )));
     }
 
     /// Synara "leaves work started by this process alone".

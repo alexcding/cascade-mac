@@ -318,7 +318,11 @@ pub fn classify_tool_item_type(tool_name: &str) -> CanonicalItemType {
     if n == "todowrite" || n.contains("todo") || matches!(n, "taskcreate" | "taskupdate" | "taskget" | "tasklist") {
         return CanonicalItemType::Plan;
     }
-    if n.contains("agent") {
+    // Subagent launches are Claude's own tools. An MCP tool whose server or name merely mentions
+    // "agent" never carries subagent routing data, so it would render as an unrouted agent task
+    // instead of a plain tool call (4b4cee418).
+    let is_mcp_tool = tool_name.strip_prefix("mcp__").and_then(|rest| rest.find("__")).is_some_and(|at| at > 0);
+    if !is_mcp_tool && n.contains("agent") {
         return CanonicalItemType::CollabAgentToolCall;
     }
     if n == "task" || n == "agent" || n.contains("subagent") || n.contains("sub-agent") {
@@ -388,6 +392,41 @@ fn summarize_tool_request(tool_name: &str, input: &Map<String, Value>, serialize
 /// have their own runtime channels and no generic tool item.
 fn is_client_surfaced_claude_tool(tool_name: &str) -> bool {
     tool_name == "AskUserQuestion" || tool_name == "ExitPlanMode"
+}
+
+/// Synara `QUIET_CLAUDE_SYSTEM_SUBTYPES` (4b4cee418): SDK system subtypes that are Claude's own
+/// bookkeeping, footer toasts or housekeeping. Claude Code keeps them out of the transcript, so
+/// they never become transcript rows here either. Includes subtypes newer CLIs emit that the SDK
+/// types do not list yet.
+const QUIET_CLAUDE_SYSTEM_SUBTYPES: &[&str] = &[
+    "notification",
+    "memory_recall",
+    "memory_saved",
+    "session_state_changed",
+    "worker_shutting_down",
+    "elicitation_complete",
+    "control_request_progress",
+    "plugin_install",
+    "turn_duration",
+    "agents_killed",
+    "permission_retry",
+];
+
+/// Synara `CLAUDE_DATA_WARNINGS` (4b4cee418): SDK events about missing context or session data
+/// need a visible warning.
+fn claude_data_warning(subtype: &str) -> Option<&'static str> {
+    match subtype {
+        "mirror_error" => Some("Claude could not sync part of this session's transcript."),
+        "instruction_size_warning" => Some("Some Claude instructions exceeded the size limit."),
+        "session_writes_lost" => Some("Claude reported that some session data could not be saved."),
+        "file_attachments_missing" => Some("Claude reported that some file attachments are missing."),
+        _ => None,
+    }
+}
+
+/// Synara `isQuietClaudeSystemSubtype` (4b4cee418)
+fn is_quiet_claude_system_subtype(subtype: &str) -> bool {
+    QUIET_CLAUDE_SYSTEM_SUBTYPES.contains(&subtype) || subtype.starts_with("ui_")
 }
 
 /// Synara `toolLifecycleEventData` (ClaudeAdapter.ts:1290)
@@ -811,9 +850,27 @@ fn sdk_native_method(message: &Value) -> String {
     format!("claude/{kind}")
 }
 
+/// Synara `claudeHeartbeatOwnToolUseId` (0d2876627): Claude reports each running main-agent
+/// tool's liveness every 30 s as a heartbeat `tool_progress` whose id is the synthetic
+/// `<tool id>-heartbeat-<n>` and whose parent is the tool itself. It is progress of that tool, not
+/// of a child, so it routes and projects under the tool's own id.
+fn claude_heartbeat_own_tool_use_id(message: &Value) -> Option<&str> {
+    let tool_use_id = message.get("parent_tool_use_id").and_then(Value::as_str).filter(|id| !id.is_empty())?;
+    let own = message.get("tool_use_id").and_then(Value::as_str)?;
+    own.strip_prefix(tool_use_id).is_some_and(|rest| rest.starts_with("-heartbeat-")).then_some(tool_use_id)
+}
+
+/// Synara `toolProgressToolUseId` (0d2876627)
+fn tool_progress_tool_use_id(message: &Value) -> Option<&str> {
+    claude_heartbeat_own_tool_use_id(message).or_else(|| message.get("tool_use_id").and_then(Value::as_str))
+}
+
 /// Synara `parentToolUseId` (ClaudeAdapter.ts:1973)
 fn parent_tool_use_id(message: &Value) -> Option<&str> {
     if !matches!(message_type(message), Some("assistant" | "user" | "stream_event" | "tool_progress")) {
+        return None;
+    }
+    if message_type(message) == Some("tool_progress") && claude_heartbeat_own_tool_use_id(message).is_some() {
         return None;
     }
     message.get("parent_tool_use_id").and_then(Value::as_str).filter(|id| !id.is_empty())
@@ -1339,6 +1396,36 @@ fn plan_claude_start(input: &ProviderSessionStartInput, binary: &str) -> ClaudeS
     }
 }
 
+/// Synara's `foregroundTasks` map (task id -> the subagent's Task tool use id, if any). A `Map`
+/// keeps insertion order, and turn end settles in that order.
+#[derive(Default)]
+struct ForegroundTasks(Vec<(String, Option<String>)>);
+
+impl ForegroundTasks {
+    fn insert(&mut self, task_id: String, tool_use_id: Option<String>) {
+        match self.0.iter_mut().find(|(id, _)| *id == task_id) {
+            Some(entry) => entry.1 = tool_use_id,
+            None => self.0.push((task_id, tool_use_id)),
+        }
+    }
+
+    fn remove(&mut self, task_id: &str) {
+        self.0.retain(|(id, _)| id != task_id);
+    }
+
+    fn get(&self, task_id: &str) -> Option<&Option<String>> {
+        self.0.iter().find(|(id, _)| id == task_id).map(|(_, tool_use_id)| tool_use_id)
+    }
+
+    fn keys(&self) -> impl Iterator<Item = &String> {
+        self.0.iter().map(|(id, _)| id)
+    }
+
+    fn clear(&mut self) {
+        self.0.clear();
+    }
+}
+
 /// A control request of ours that is waiting for the CLI's answer.
 enum PendingControl {
     Initialize,
@@ -1357,6 +1444,9 @@ struct ClaudeSubagentRun {
     /// The last resolved model id surfaced for this subagent (from its assistant messages), so
     /// the child thread is updated once per distinct model.
     reported_model: Option<String>,
+    /// Synara `run.background`: set by `task_updated` `is_backgrounded` while the task runs, so a
+    /// run moved to the background before the CLI lists it is not closed with the turn.
+    background: bool,
 }
 
 /// Synara `subagentRefs`: stamped on every event a subagent's scoped context makes.
@@ -1436,13 +1526,27 @@ struct ClaudeSessionContext {
     processed_token_baseline_known: bool,
     request_usage: ClaudeRequestUsage,
     result_usage_baseline: Option<Value>,
+    /// Synara `resultUsageMayIncludeResumedTotals` (a21eb2b43): Claude Code restores a resumed
+    /// session's saved usage totals into the first result of a new process. Until a baseline
+    /// exists, a result is not one turn.
+    result_usage_may_include_resumed_totals: bool,
     last_result_uuid: Option<String>,
     last_assistant_uuid: Option<String>,
     last_thread_started_id: Option<String>,
     stopped: bool,
     warned_unhandled_sdk_kinds: HashSet<String>,
     known_background_task_ids: Vec<String>,
+    /// Synara `taskTurnIds` (29b28b785): the turn that was running when each task started. Task
+    /// messages can arrive after that turn ended and stay attributed to it.
+    task_turn_ids: HashMap<String, TurnId>,
     terminal_task_ids: HashSet<String>,
+    /// Synara `foregroundTasks` (587083ded), root only: main-conversation tasks registered in the
+    /// foreground (task id -> the subagent's Task tool use id, if any) that have not published
+    /// terminal evidence. A foreground task cannot outlive its turn, so turn end publishes it.
+    foreground_tasks: ForegroundTasks,
+    /// Tasks a subagent started itself (a subagent's own Bash), whose lifecycle is the subagent's,
+    /// not the main conversation's: Synara's `subagentTaskOwners`, reduced to membership.
+    subagent_owned_task_ids: HashSet<String>,
     pending_controls: HashMap<String, PendingControl>,
     /// Set while a subagent run's scope is swapped in.
     subagent_refs: Option<SubagentRefs>,
@@ -1540,13 +1644,18 @@ async fn run_session(
         processed_token_baseline_known,
         request_usage: ClaudeRequestUsage::default(),
         result_usage_baseline: None,
+        // A resumed (or forked) conversation's first result may restore its saved totals (a21eb2b43).
+        result_usage_may_include_resumed_totals: resume_state.resume.is_some(),
         last_result_uuid: None,
         last_assistant_uuid: resume_state.resume_session_at.clone(),
         last_thread_started_id: None,
         stopped: false,
         warned_unhandled_sdk_kinds: HashSet::new(),
         known_background_task_ids: Vec::new(),
+        task_turn_ids: HashMap::new(),
         terminal_task_ids: HashSet::new(),
+        foreground_tasks: ForegroundTasks::default(),
+        subagent_owned_task_ids: HashSet::new(),
         pending_controls: HashMap::new(),
         subagent_refs: None,
         subagent_runs: HashMap::new(),
@@ -1696,6 +1805,7 @@ impl ClaudeSessionContext {
             tool_use_id: tool_use_id.to_owned(),
             task_id: None,
             reported_model: None,
+            background: false,
             scope: ClaudeScope {
                 session: self.session.clone(),
                 pending_approvals: HashMap::new(),
@@ -1793,6 +1903,56 @@ impl ClaudeSessionContext {
             self.swap_scope(&mut run.scope);
             self.complete_turn(turn_status, None, None).await;
             self.swap_scope(&mut run.scope);
+        }
+    }
+
+    /// Synara `run.background`: a run `task_updated` moved to the background, or whose task the
+    /// CLI lists among its background tasks.
+    fn is_background_subagent_run(&self, tool_use_id: &str) -> bool {
+        self.subagent_runs.get(tool_use_id).is_some_and(|run| {
+            run.background || run.task_id.as_ref().is_some_and(|task_id| self.known_background_task_ids.contains(task_id))
+        })
+    }
+
+    /// Synara `taskTurnIdField` (29b28b785): task events belong to the turn that started the task,
+    /// falling back to the active turn for tasks this session never saw start.
+    fn task_turn_id(&self, task_id: &str) -> Option<TurnId> {
+        self.task_turn_ids.get(task_id).cloned().or_else(|| self.current_turn_id())
+    }
+
+    /// Synara `settleForegroundTasksAtTurnEnd` (587083ded): a foreground task blocks the main
+    /// conversation's tool call, so it has ended once the main conversation's turn has. The CLI
+    /// does not always say so (a turn failing on a usage limit mid-subagent sends no terminal task
+    /// message), and a task left live blocks handoff and the idle stop.
+    async fn settle_foreground_tasks_at_turn_end(&mut self, status: RuntimeTurnState) {
+        let turn_status = match status {
+            RuntimeTurnState::Completed => "completed",
+            RuntimeTurnState::Failed => "failed",
+            _ => "stopped",
+        };
+        for (task_id, tool_use_id) in std::mem::take(&mut self.foreground_tasks).0 {
+            // Background work settles through its own task_notification.
+            if tool_use_id.as_deref().is_some_and(|id| self.is_background_subagent_run(id))
+                || self.known_background_task_ids.contains(&task_id)
+            {
+                continue;
+            }
+            // A subagent that already handed back keeps the outcome it settled with.
+            let settled_status = tool_use_id
+                .as_ref()
+                .and_then(|id| self.settled_subagent_tool_use_ids.get(id).copied())
+                .unwrap_or(turn_status);
+            self.terminal_task_ids.insert(task_id.clone());
+            self.settle_pending_human_interactions_for_agent(&task_id).await;
+            let turn_id = self.task_turn_ids.remove(&task_id);
+            let mut payload = json!({ "taskId": task_id, "status": settled_status });
+            if let Some(tool_use_id) = &tool_use_id {
+                payload["toolUseId"] = json!(tool_use_id);
+            }
+            if let Some(body) = body("task.completed", payload) {
+                let event = self.event(body).turn(turn_id);
+                self.offer(event).await;
+            }
         }
     }
 
@@ -2249,12 +2409,15 @@ impl ClaudeSessionContext {
         self.offer(event).await;
     }
 
-    /// Synara `warnUnhandledSdkKind` (ClaudeAdapter.ts:2859)
-    async fn warn_unhandled_sdk_kind(&mut self, kind: String, message: String, detail: Value) {
-        if !self.warned_unhandled_sdk_kinds.insert(kind) {
+    /// Synara `warnUnhandledSdkKind` (ClaudeAdapter.ts:2859): logs each distinct unrecognized SDK
+    /// message kind at most once per session. Kinds the adapter does not model are Claude's own
+    /// bookkeeping or features newer than this adapter: Claude Code does not show them either, so
+    /// they go to the log instead of the transcript (4b4cee418).
+    async fn warn_unhandled_sdk_kind(&mut self, kind: String, message: String, _detail: Value) {
+        if !self.warned_unhandled_sdk_kinds.insert(kind.clone()) {
             return;
         }
-        self.emit_runtime_warning(&message, Some(detail)).await;
+        tracing::warn!(kind = %kind, "claude.sdk.unhandled_kind: {message}");
     }
 
     /// Synara `emitProposedPlanCompleted` (ClaudeAdapter.ts:2873)
@@ -2439,9 +2602,16 @@ impl ClaudeSessionContext {
             self.settle_pending_human_interactions(Some(&turn_id)).await;
         }
 
-        let turn_result_usage = result.map(|r| claude_turn_result_usage(r, self.result_usage_baseline.as_ref()));
+        // The first result after a resume may carry the session's restored totals, so it only
+        // becomes the baseline; the turn keeps its main loop (a21eb2b43).
+        let result_usage_unattributable =
+            result.is_some() && self.result_usage_baseline.is_none() && self.result_usage_may_include_resumed_totals;
+        let turn_result_usage = result
+            .filter(|_| !result_usage_unattributable)
+            .map(|r| claude_turn_result_usage(r, self.result_usage_baseline.as_ref()));
         if let Some(result) = result {
             self.result_usage_baseline = Some(result.clone());
+            self.result_usage_may_include_resumed_totals = false;
         }
         if let Some(window) = max_claude_context_window_from_model_usage(result.and_then(|r| r.get("modelUsage"))) {
             self.last_known_context_window = Some(window);
@@ -2510,7 +2680,14 @@ impl ClaudeSessionContext {
             error_message: error_message.clone(),
         };
 
+        // Auto-closing a stale synthetic turn (completed, no result) does not end the CLI's own
+        // turn, so its foreground tasks may still be running (587083ded).
+        let settles_foreground_tasks = self.subagent_refs.is_none() && (result.is_some() || status != RuntimeTurnState::Completed);
+
         let Some(turn_state) = self.turn_state.take() else {
+            if settles_foreground_tasks {
+                self.settle_foreground_tasks_at_turn_end(status).await;
+            }
             if let Some(usage) = usage_snapshot {
                 let event = self.event(ProviderRuntimeEventBody::ThreadTokenUsageUpdated(ThreadTokenUsageUpdatedPayload { usage }));
                 self.offer(event).await;
@@ -2532,6 +2709,18 @@ impl ClaudeSessionContext {
         let tools = std::mem::take(&mut self.in_flight_tools);
         let raw_result = result.cloned().unwrap_or_else(|| json!({ "status": status }));
         for (_, tool) in tools {
+            // A subagent whose launching call is still open when the launcher's turn is
+            // interrupted or fails ends with it: record that outcome on the call, so it never
+            // reads as a finished subagent (a769ed0fa). Background runs outlive the launching turn.
+            let aborted_subagent_status = (status != RuntimeTurnState::Completed
+                && matches!(tool.tool_name.as_str(), "Task" | "Agent")
+                && !self.is_background_subagent_run(&tool.item_id))
+            .then_some(if status == RuntimeTurnState::Failed { "failed" } else { "stopped" });
+            let extra = aborted_subagent_status.map(|agent_status| {
+                let mut extra = Map::new();
+                extra.insert("agentStates".into(), json!({ tool.item_id.clone(): { "status": agent_status } }));
+                extra
+            });
             let completed = self
                 .event(ProviderRuntimeEventBody::ItemCompleted(ItemLifecyclePayload {
                     async_questions: None,
@@ -2539,7 +2728,7 @@ impl ClaudeSessionContext {
                     status: Some(if status == RuntimeTurnState::Completed { RuntimeItemStatus::Completed } else { RuntimeItemStatus::Failed }),
                     title: Some(tool.title.clone()),
                     detail: tool.detail.clone(),
-                    data: Some(tool_lifecycle_event_data(&tool, None)),
+                    data: Some(tool_lifecycle_event_data(&tool, extra)),
                 }))
                 .turn(Some(turn_id.clone()))
                 .item(&tool.item_id)
@@ -2551,6 +2740,17 @@ impl ClaudeSessionContext {
                     turn.saw_file_change = true;
                 }
             }
+            // An interrupted or failed launcher turn takes its foreground subagents with it: close
+            // their child turns instead of leaving them running.
+            if let Some(agent_status) = aborted_subagent_status {
+                if self.subagent_runs.contains_key(&tool.item_id) {
+                    let turn_status = if agent_status == "failed" { RuntimeTurnState::Failed } else { RuntimeTurnState::Interrupted };
+                    Box::pin(self.settle_subagent_run(&tool.item_id, agent_status, turn_status)).await;
+                }
+            }
+        }
+        if settles_foreground_tasks {
+            self.settle_foreground_tasks_at_turn_end(status).await;
         }
 
         let block_count = self.turn_state.as_ref().map_or(0, |t| t.assistant_text_block_order.len());
@@ -3150,6 +3350,13 @@ impl ClaudeSessionContext {
         if subtype == "thinking_tokens" {
             return;
         }
+        if is_quiet_claude_system_subtype(&subtype) {
+            return;
+        }
+        if let Some(warning) = claude_data_warning(&subtype) {
+            self.emit_runtime_warning(warning, None).await;
+            return;
+        }
         let base_raw = RuntimeEventRaw {
             source: RuntimeEventRawSource::ClaudeSdkMessage,
             method: Some(sdk_native_method(message)),
@@ -3168,9 +3375,18 @@ impl ClaudeSessionContext {
             }
             let task_id = text("task_id").unwrap_or_default();
             let terminal = matches!(status.as_deref(), Some("completed" | "failed" | "killed"));
+            // Terminal evidence wins over queued progress/status patches. Only task_started can
+            // reopen the same native id for a resumed run (b2d550f91).
+            if !terminal && self.terminal_task_ids.contains(&task_id) {
+                return;
+            }
             if terminal {
                 self.terminal_task_ids.insert(task_id.clone());
                 self.settle_pending_human_interactions_for_agent(&task_id).await;
+            }
+            // Terminal or backgrounded work no longer ends with its turn.
+            if terminal || is_backgrounded == Some(true) {
+                self.foreground_tasks.remove(&task_id);
             }
             if terminal || is_backgrounded == Some(false) {
                 self.known_background_task_ids.retain(|id| *id != task_id);
@@ -3188,8 +3404,23 @@ impl ClaudeSessionContext {
             let run = self.subagent_run_for_task(None, &task_id);
             if let Some(run) = &run {
                 payload["toolUseId"] = json!(run);
+                if let (false, Some(backgrounded)) = (terminal, is_backgrounded) {
+                    if let Some(entry) = self.subagent_runs.get_mut(run) {
+                        entry.background = backgrounded;
+                    }
+                }
             }
-            self.offer_body("task.updated", payload, base_raw.clone()).await;
+            // A task brought back to the foreground once again ends with its root turn.
+            if is_backgrounded == Some(false)
+                && !self.terminal_task_ids.contains(&task_id)
+                && !self.subagent_owned_task_ids.contains(&task_id)
+                && self.subagent_refs.is_none()
+                && self.turn_state.is_some()
+            {
+                self.foreground_tasks.insert(task_id.clone(), run.clone());
+            }
+            let turn_id = self.task_turn_id(&task_id);
+            self.offer_body_on_turn("task.updated", payload, base_raw.clone(), turn_id).await;
             // A tracked subagent's child thread follows its task's state.
             let (Some(tool_use_id), Some(state)) = (run, status.as_deref().and_then(runtime_session_state_from_claude_task_status))
             else {
@@ -3223,15 +3454,52 @@ impl ClaudeSessionContext {
         let (kind, payload) = match subtype.as_str() {
             "init" => ("session.configured", json!({ "config": message })),
             "api_retry" => {
-                let delay = message.get("retry_delay_ms").and_then(Value::as_f64).unwrap_or(0.0) / 1000.0;
-                let reason = match message.get("error_status") {
-                    Some(Value::Null) | None => "connection error".to_owned(),
-                    Some(status) => format!("HTTP {status}"),
+                // Claude Code shows retries as a passing status line and names the error only from
+                // the third attempt. The first ones usually recover unnoticed; rate limits are
+                // worth knowing about right away (4b4cee418).
+                let rate_limited = text("error").as_deref() == Some("rate_limit");
+                let attempt = message.get("attempt").and_then(Value::as_f64);
+                let max = message.get("max_retries").and_then(Value::as_f64);
+                if let (Some(attempt), Some(max)) = (attempt, max) {
+                    if attempt < max.min(3.0) && !rate_limited {
+                        return;
+                    }
+                }
+                let reason = if rate_limited {
+                    "rate limited".to_owned()
+                } else {
+                    match message.get("error_status") {
+                        Some(Value::Null) | None => "connection error".to_owned(),
+                        Some(status) => format!("HTTP {status}"),
+                    }
                 };
-                let attempt = field("attempt");
-                let max = field("max_retries");
-                self.emit_runtime_warning(&format!("Request retry {attempt}/{max} in {}s ({reason}).", delay.ceil()), Some(message.clone()))
-                    .await;
+                // One stable line per cause, so repeated attempts collapse into one row.
+                let mut detail = message.clone();
+                detail["willRetry"] = json!(true);
+                self.emit_runtime_warning(&format!("Claude API error ({reason}), retrying."), Some(detail)).await;
+                return;
+            }
+            "informational" => {
+                // Claude Code shows `info` lines only in its verbose transcript view, and a Stop
+                // hook's "Stop says:" feedback only when it blocked the turn.
+                let content = text("content").unwrap_or_default().trim().to_owned();
+                if text("level").as_deref() == Some("info") || content.is_empty() {
+                    return;
+                }
+                let blocked = message.get("prevent_continuation").and_then(Value::as_bool) == Some(true);
+                if content.to_lowercase().starts_with("stop says:") && !blocked {
+                    return;
+                }
+                self.emit_runtime_warning(&content, Some(message.clone())).await;
+                return;
+            }
+            "model_refusal_no_fallback" => {
+                // Nothing was retried: the reply ends here and the user has to rephrase or pick
+                // another model, so say why.
+                let content = text("content").unwrap_or_default().trim().to_owned();
+                if !content.is_empty() {
+                    self.emit_runtime_warning(&content, Some(message.clone())).await;
+                }
                 return;
             }
             "permission_denied" => {
@@ -3280,6 +3548,10 @@ impl ClaudeSessionContext {
             "task_started" => {
                 let task_id = text("task_id").unwrap_or_default();
                 self.terminal_task_ids.remove(&task_id);
+                self.foreground_tasks.remove(&task_id);
+                if let Some(turn_id) = self.current_turn_id() {
+                    self.task_turn_ids.entry(task_id.clone()).or_insert(turn_id);
+                }
                 // A subagent task gets its run, so later progress, its end and a stop find it by
                 // the Task tool's id, which ingestion routes on.
                 if let Some(tool_use_id) = text("tool_use_id")
@@ -3293,15 +3565,46 @@ impl ClaudeSessionContext {
                         self.stop_subagent_task(&task_id).await;
                     }
                 }
+                // Work a subagent started itself (its own Bash) is the subagent's, not the main
+                // conversation's.
+                let started_tool_use_id = text("tool_use_id");
+                let owned_by_subagent = started_tool_use_id.as_deref().is_some_and(|id| {
+                    self.subagent_runs.values().any(|run| run.scope.in_flight_tools.iter().any(|(_, tool)| tool.item_id == id))
+                });
+                if owned_by_subagent {
+                    self.subagent_owned_task_ids.insert(task_id.clone());
+                } else {
+                    self.subagent_owned_task_ids.remove(&task_id);
+                }
+                // Only the main conversation's own foreground work ends with its turn (587083ded).
+                // `is_backgrounded` is set only for agents and shells: other task types (Monitor,
+                // workflows) can outlive the turn.
+                let started_run = started_tool_use_id.filter(|id| self.subagent_runs.contains_key(id));
+                if message.get("is_backgrounded").and_then(Value::as_bool) == Some(false)
+                    && !owned_by_subagent
+                    && !started_run.as_deref().is_some_and(|id| self.is_background_subagent_run(id))
+                    && self.subagent_refs.is_none()
+                    && self.turn_state.is_some()
+                {
+                    self.foreground_tasks.insert(task_id.clone(), started_run);
+                }
                 let mut payload = json!({ "taskId": task_id, "description": field("description") });
                 for (from, to) in [("task_type", "taskType"), ("subagent_type", "subagentType"), ("workflow_name", "workflowName"), ("tool_use_id", "toolUseId")] {
                     if let Some(value) = text(from) {
                         payload[to] = json!(value);
                     }
                 }
-                ("task.started", payload)
+                let turn_id = self.task_turn_id(&task_id);
+                self.offer_body_on_turn("task.started", payload, base_raw, turn_id).await;
+                return;
             }
             "task_progress" => {
+                let task_id = text("task_id").unwrap_or_default();
+                // A late progress message cannot resurrect a terminal task, whether it settled
+                // with its turn or through its own lifecycle notification (b2d550f91).
+                if self.terminal_task_ids.contains(&task_id) {
+                    return;
+                }
                 let mut payload = json!({ "taskId": field("task_id"), "description": field("description") });
                 for (from, to) in [("summary", "summary"), ("last_tool_name", "lastToolName")] {
                     if let Some(value) = text(from).filter(|v| !v.is_empty()) {
@@ -3311,11 +3614,14 @@ impl ClaudeSessionContext {
                 if let Some(usage) = message.get("usage").filter(|u| !u.is_null()) {
                     payload["usage"] = usage.clone();
                 }
-                ("task.progress", payload)
+                let turn_id = self.task_turn_id(&task_id);
+                self.offer_body_on_turn("task.progress", payload, base_raw, turn_id).await;
+                return;
             }
             "task_notification" => {
                 let task_id = text("task_id").unwrap_or_default();
                 self.terminal_task_ids.insert(task_id.clone());
+                self.foreground_tasks.remove(&task_id);
                 self.settle_pending_human_interactions_for_agent(&task_id).await;
                 self.known_background_task_ids.retain(|id| *id != task_id);
                 let mut payload = json!({ "taskId": task_id, "status": field("status") });
@@ -3332,7 +3638,9 @@ impl ClaudeSessionContext {
                 if let Some(run) = &run {
                     payload["toolUseId"] = json!(run);
                 }
-                self.offer_body("task.completed", payload, base_raw).await;
+                let turn_id = self.task_turn_id(&task_id);
+                self.offer_body_on_turn("task.completed", payload, base_raw, turn_id).await;
+                self.task_turn_ids.remove(&task_id);
                 if let Some(run) = run {
                     let (settled, turn_status) = match status.as_deref() {
                         Some("completed") => ("completed", RuntimeTurnState::Completed),
@@ -3364,14 +3672,24 @@ impl ClaudeSessionContext {
             // not transcript content.
             "commands_changed" => return,
             "background_tasks_changed" => {
-                // REPLACE semantics: the payload is the whole live background set.
-                let tasks = message.get("tasks").and_then(Value::as_array).cloned().unwrap_or_default();
+                // REPLACE semantics: the payload is the whole live background set. A task with
+                // terminal evidence is not live again (b2d550f91).
+                let task_id_of = |t: &Value| t.get("task_id").and_then(Value::as_str).unwrap_or_default().to_owned();
+                let tasks: Vec<Value> = message
+                    .get("tasks")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter(|t| !self.terminal_task_ids.contains(&task_id_of(t)))
+                    .cloned()
+                    .collect();
+                // Ambient tasks are Claude's own housekeeping, which Claude Code keeps out of the
+                // transcript. They stay tracked below but are never announced or listed (4b4cee418).
+                let ambient = |t: &Value| t.get("ambient").and_then(Value::as_bool) == Some(true);
                 let added: Vec<&Value> = tasks
                     .iter()
-                    .filter(|t| {
-                        let id = t.get("task_id").and_then(Value::as_str).unwrap_or_default();
-                        !self.known_background_task_ids.iter().any(|known| known == id)
-                    })
+                    .filter(|t| !ambient(t))
+                    .filter(|t| !self.known_background_task_ids.contains(&task_id_of(t)))
                     .collect();
                 let labels: Vec<String> = added
                     .iter()
@@ -3391,8 +3709,13 @@ impl ClaudeSessionContext {
                 };
                 self.known_background_task_ids =
                     tasks.iter().filter_map(|t| t.get("task_id").and_then(Value::as_str).map(str::to_owned)).collect();
+                for task_id in &self.known_background_task_ids {
+                    self.foreground_tasks.remove(task_id);
+                }
                 if let Some(notice) = notice {
-                    self.emit_runtime_warning(&notice, Some(message.clone())).await;
+                    let mut detail = message.clone();
+                    detail["tasks"] = Value::Array(tasks.iter().filter(|t| !ambient(t)).cloned().collect());
+                    self.emit_runtime_warning(&notice, Some(detail)).await;
                 }
                 return;
             }
@@ -3411,19 +3734,24 @@ impl ClaudeSessionContext {
 
     /// Publishes a payload built as JSON; one the contract rejects is reported, not dropped.
     async fn offer_body(&mut self, kind: &str, payload: Value, raw_event: RuntimeEventRaw) {
+        self.offer_body_on_turn(kind, payload, raw_event, self.current_turn_id()).await;
+    }
+
+    /// [`Self::offer_body`] on a given turn: a task's events keep the turn that started it.
+    async fn offer_body_on_turn(&mut self, kind: &str, payload: Value, raw_event: RuntimeEventRaw, turn_id: Option<TurnId>) {
         match body(kind, payload) {
             Some(body) => {
-                let event = self.event(body).turn(self.current_turn_id()).raw(raw_event);
+                let event = self.event(body).turn(turn_id).raw(raw_event);
                 self.offer(event).await;
             }
             None => {
+                // Cascade's own path, not Synara's: a known kind the contract rejects stays a
+                // visible warning (once per kind), unlike an unknown kind, which is only logged.
                 let native = raw_event.message_type.clone().unwrap_or_else(|| kind.to_owned());
-                self.warn_unhandled_sdk_kind(
-                    format!("invalid:{native}"),
-                    format!("Claude sent a '{native}' message this app could not read."),
-                    raw_event.payload,
-                )
-                .await;
+                if self.warned_unhandled_sdk_kinds.insert(format!("invalid:{native}")) {
+                    let message = format!("Claude sent a '{native}' message this app could not read.");
+                    self.emit_runtime_warning(&message, Some(raw_event.payload)).await;
+                }
             }
         }
     }
@@ -3441,7 +3769,7 @@ impl ClaudeSessionContext {
         let (event_kind, payload) = match kind.as_str() {
             "tool_progress" => {
                 let mut payload = json!({
-                    "toolUseId": field("tool_use_id"),
+                    "toolUseId": tool_progress_tool_use_id(message),
                     "toolName": field("tool_name"),
                     "elapsedSeconds": field("elapsed_time_seconds"),
                 });
@@ -3508,6 +3836,7 @@ impl ClaudeSessionContext {
             "assistant" => self.handle_assistant_message(&message).await,
             "conversation_reset" => {
                 self.result_usage_baseline = None;
+                self.result_usage_may_include_resumed_totals = false;
                 self.request_usage.reset();
                 self.processed_token_turn_baseline = self.processed_token_total;
                 self.processed_token_result_baseline = self.processed_token_total;
@@ -3516,6 +3845,15 @@ impl ClaudeSessionContext {
             "result" => self.handle_result_message(&message).await,
             "system" => self.handle_system_message(&message).await,
             "tool_progress" | "tool_use_summary" | "auth_status" | "rate_limit_event" => {
+                // A heartbeat only beats while its call runs: one that lands after the call
+                // finished is stale and must not reopen its row (0d2876627).
+                if let Some(tool_use_id) = claude_heartbeat_own_tool_use_id(&message) {
+                    if message_type(&message) == Some("tool_progress")
+                        && !self.in_flight_tools.iter().any(|(_, tool)| tool.item_id == tool_use_id)
+                    {
+                        return;
+                    }
+                }
                 self.handle_sdk_telemetry_message(&message).await;
             }
             other => {
@@ -3781,12 +4119,15 @@ impl ClaudeSessionContext {
             .values()
             .filter_map(|run| run.task_id.clone())
             .chain(self.known_background_task_ids.iter().cloned())
+            // Foreground tasks a stale synthetic turn left open retire with them (587083ded).
+            .chain(self.foreground_tasks.keys().cloned())
             .collect::<Vec<_>>()
         {
             if retired_tasks.iter().any(|(id, _)| *id == task_id) {
                 continue;
             }
-            let tool_use_id = self.subagent_run_for_task(None, &task_id);
+            let tool_use_id =
+                self.subagent_run_for_task(None, &task_id).or_else(|| self.foreground_tasks.get(&task_id).cloned().flatten());
             retired_tasks.push((task_id, tool_use_id));
         }
         let runs: Vec<String> = self.subagent_runs.keys().cloned().collect();
@@ -3829,10 +4170,14 @@ impl ClaudeSessionContext {
                 payload["toolUseId"] = json!(tool_use_id);
             }
             if let Some(body) = body("task.completed", payload) {
-                let event = self.event(body);
+                let turn_id = self.task_turn_ids.get(&task_id).cloned();
+                let event = self.event(body).turn(turn_id);
                 self.offer(event).await;
             }
         }
+        self.foreground_tasks.clear();
+        self.task_turn_ids.clear();
+        self.subagent_owned_task_ids.clear();
 
         self.session.status = ProviderSessionStatus::Closed;
         self.session.active_turn_id = None;
@@ -4808,6 +5153,520 @@ mod tests {
         let completed = seen.iter().rev().find(|e| kind(e) == "turn.completed").unwrap();
         let ProviderRuntimeEventBody::TurnCompleted(payload) = &completed.body else { unreachable!() };
         assert_eq!(payload.state, RuntimeTurnState::Interrupted);
+    }
+
+    fn turn_input(text: &str) -> ProviderSendTurnInput {
+        ProviderSendTurnInput {
+            thread_id: ThreadId::new("thread-1"),
+            input: Some(text.into()),
+            attachments: None,
+            skills: None,
+            mentions: None,
+            model_selection: None,
+            interaction_mode: None,
+        }
+    }
+
+    /// A session with one turn sent, whose CLI the test speaks for line by line.
+    struct ScriptedTurn {
+        handle: ProviderSessionHandle,
+        events: mpsc::Receiver<ProviderRuntimeEvent>,
+        stdin: tokio::io::Lines<BufReader<tokio::io::DuplexStream>>,
+        stdout: tokio::io::DuplexStream,
+        _exit: oneshot::Sender<Option<i32>>,
+        turn_id: TurnId,
+        seen: Vec<ProviderRuntimeEvent>,
+    }
+
+    impl ScriptedTurn {
+        async fn start(resume_cursor: Option<Value>) -> Self {
+            let spawner = ScriptedSpawner::new();
+            let mut input = start_input(RuntimeMode::FullAccess);
+            input.resume_cursor = resume_cursor;
+            let (sink, events) = mpsc::channel(1024);
+            let handle = ClaudeAdapter::new("/tmp").start_session(input, sink, Arc::new(spawner.clone()));
+            let child = spawner.next().await;
+            let mut stdin = BufReader::new(child.stdin).lines();
+            let _initialize = read_json_line(&mut stdin).await;
+            let turn = handle.send_turn(turn_input("go")).await.unwrap();
+            let _user = read_json_line(&mut stdin).await;
+            ScriptedTurn { handle, events, stdin, stdout: child.stdout, _exit: child.exit, turn_id: turn.turn_id, seen: Vec::new() }
+        }
+
+        async fn emit(&mut self, messages: &[Value]) {
+            for message in messages {
+                self.stdout.write_all(format!("{message}\n").as_bytes()).await.unwrap();
+            }
+        }
+
+        /// Events up to and including the next root `turn.completed`.
+        async fn until_root_turn_completed(&mut self) -> ProviderRuntimeEvent {
+            loop {
+                let event = next_until(&mut self.events, &mut self.seen, "turn.completed").await;
+                if subagent_of(&event).is_none() {
+                    return event;
+                }
+            }
+        }
+
+        async fn next_turn(&mut self, text: &str) -> TurnId {
+            let turn = self.handle.send_turn(turn_input(text)).await.unwrap();
+            // A later turn re-applies the base permission mode before the prompt.
+            loop {
+                if read_json_line(&mut self.stdin).await["type"] == "user" {
+                    break;
+                }
+            }
+            turn.turn_id
+        }
+    }
+
+    const SESSION: &str = "f17ee499-d743-47c0-965c-a383d97a0b55";
+
+    fn payload(event: &ProviderRuntimeEvent) -> Value {
+        serde_json::to_value(event).unwrap()["payload"].clone()
+    }
+
+    fn system(subtype: &str, fields: Value) -> Value {
+        let mut message = json!({ "type": "system", "subtype": subtype, "session_id": SESSION, "uuid": new_id() });
+        for (key, value) in fields.as_object().unwrap() {
+            message[key] = value.clone();
+        }
+        message
+    }
+
+    fn root_tool_use(index: i64, id: &str, name: &str, input: Value) -> Value {
+        json!({
+            "type": "stream_event", "session_id": SESSION, "uuid": new_id(), "parent_tool_use_id": null,
+            "event": { "type": "content_block_start", "index": index, "content_block": { "type": "tool_use", "id": id, "name": name, "input": input } },
+        })
+    }
+
+    fn tool_result(id: &str, text: &str) -> Value {
+        json!({
+            "type": "user", "session_id": SESSION, "uuid": new_id(), "parent_tool_use_id": null,
+            "message": { "role": "user", "content": [{ "type": "tool_result", "tool_use_id": id, "content": text }] },
+        })
+    }
+
+    fn subagent_text(parent: &str, text: &str) -> Value {
+        json!({
+            "type": "assistant", "session_id": SESSION, "uuid": new_id(), "parent_tool_use_id": parent,
+            "message": { "id": new_id(), "content": [{ "type": "text", "text": text }] },
+        })
+    }
+
+    fn success() -> Value {
+        json!({ "type": "result", "subtype": "success", "is_error": false, "session_id": SESSION, "uuid": new_id(), "usage": {} })
+    }
+
+    fn of_kind<'a>(seen: &'a [ProviderRuntimeEvent], wanted: &'a str) -> impl Iterator<Item = &'a ProviderRuntimeEvent> + 'a {
+        seen.iter().filter(move |e| kind(e) == wanted)
+    }
+
+    /// 0d2876627: a heartbeat `tool_progress` (`<id>-heartbeat-<n>`, parented on the tool itself)
+    /// updates its tool's row, and one that lands after the call finished is dropped.
+    #[tokio::test]
+    async fn a_heartbeat_reports_on_its_own_tool_and_a_late_one_is_dropped() {
+        let mut cli = ScriptedTurn::start(None).await;
+        let heartbeat = |n: u32, elapsed: u32| {
+            json!({
+                "type": "tool_progress", "tool_use_id": format!("tool-bash-1-heartbeat-{n}"), "tool_name": "Bash",
+                "parent_tool_use_id": "tool-bash-1", "elapsed_time_seconds": elapsed, "heartbeat": true,
+                "session_id": SESSION, "uuid": new_id(),
+            })
+        };
+        cli.emit(&[
+            root_tool_use(0, "tool-bash-1", "Bash", json!({ "command": "sleep 60" })),
+            heartbeat(0, 30),
+            tool_result("tool-bash-1", "done"),
+            // A heartbeat already in flight when the command finished.
+            heartbeat(1, 60),
+            success(),
+        ])
+        .await;
+        cli.until_root_turn_completed().await;
+        let progress: Vec<Value> = of_kind(&cli.seen, "tool.progress").map(payload).collect();
+        assert_eq!(progress, [json!({ "toolUseId": "tool-bash-1", "toolName": "Bash", "elapsedSeconds": 30.0 })]);
+        assert!(cli.seen.iter().all(|e| subagent_of(e).is_none()), "a heartbeat is the tool's own progress");
+        let _ = cli.handle.stop().await;
+    }
+
+    /// b2d550f91: once a task has terminal evidence, queued progress, status patches and background
+    /// snapshots cannot make it live again; only a new `task_started` reopens it.
+    #[tokio::test]
+    async fn a_settled_background_task_ignores_late_telemetry_until_it_restarts() {
+        const BG: &str = "toolu_settled_background";
+        const TASK: &str = "task-settled-background";
+        for terminal_source in ["task_updated", "task_notification"] {
+            let mut cli = ScriptedTurn::start(None).await;
+            let task = json!({ "task_id": TASK, "task_type": "local_bash", "description": "Background check" });
+            let other = json!({ "task_id": "task-still-live", "task_type": "local_bash", "description": "Other work" });
+            let started = system("task_started", json!({ "task_id": TASK, "task_type": "local_bash", "description": "Background check", "tool_use_id": BG, "is_backgrounded": true }));
+            let terminal = match terminal_source {
+                "task_updated" => system("task_updated", json!({ "task_id": TASK, "patch": { "status": "completed" } })),
+                _ => system("task_notification", json!({ "task_id": TASK, "status": "completed", "summary": "Done." })),
+            };
+            let running = || system("task_updated", json!({ "task_id": TASK, "patch": { "status": "running", "is_backgrounded": true } }));
+            cli.emit(&[
+                root_tool_use(0, BG, "Bash", json!({ "command": "check", "description": "Background check" })),
+                started.clone(),
+                system("background_tasks_changed", json!({ "tasks": [task] })),
+                tool_result(BG, "Moved to background."),
+                terminal,
+                system("task_progress", json!({ "task_id": TASK, "description": "Stale progress" })),
+                running(),
+                system("background_tasks_changed", json!({ "tasks": [] })),
+                system("background_tasks_changed", json!({ "tasks": [task, other] })),
+                // The same native id can be resumed: only a new start reopens it.
+                started,
+                system("task_progress", json!({ "task_id": TASK, "description": "Resumed progress" })),
+                running(),
+                system("background_tasks_changed", json!({ "tasks": [task] })),
+                system("task_notification", json!({ "task_id": TASK, "status": "completed", "summary": "Resumed done." })),
+                success(),
+            ])
+            .await;
+            cli.until_root_turn_completed().await;
+            let progress: Vec<Value> = of_kind(&cli.seen, "task.progress").map(|e| payload(e)["description"].clone()).collect();
+            assert_eq!(progress, [json!("Resumed progress")], "{terminal_source}");
+            assert_eq!(of_kind(&cli.seen, "task.updated").filter(|e| payload(e)["status"] == "running").count(), 1, "{terminal_source}");
+            let notices = of_kind(&cli.seen, "runtime.warning")
+                .filter(|e| {
+                    payload(e)["detail"]["tasks"].as_array().is_some_and(|tasks| tasks.iter().any(|t| t["task_id"] == TASK))
+                })
+                .count();
+            assert_eq!(notices, 2, "{terminal_source}");
+            assert_eq!(of_kind(&cli.seen, "task.started").count(), 2, "{terminal_source}");
+            let _ = cli.handle.stop().await;
+        }
+    }
+
+    /// 587083ded and a769ed0fa: a turn that fails with foreground work open ends that work with it.
+    /// Its foreground tasks get terminal evidence on its turn (a subagent keeps the outcome it
+    /// settled with), its open Agent call reads failed, not done, and late progress is dropped.
+    #[tokio::test]
+    async fn a_failed_turn_settles_the_foreground_tasks_it_left_open() {
+        const FG: &str = "toolu_limited_agent";
+        const BASH: &str = "toolu_limited_bash";
+        for returned_to_foreground in [false, true] {
+            let mut cli = ScriptedTurn::start(None).await;
+            let mut messages = vec![
+                root_tool_use(0, BASH, "Bash", json!({ "command": "make", "description": "Build" })),
+                system("task_started", json!({ "task_id": "task-limited-bash", "tool_use_id": BASH, "task_type": "local_bash", "is_backgrounded": false, "description": "Build" })),
+                root_tool_use(1, FG, "Agent", json!({ "description": "Limited job", "prompt": "Dig in." })),
+                system("task_started", json!({ "task_id": "task-limited", "tool_use_id": FG, "task_type": "local_agent", "subagent_type": "general-purpose", "is_backgrounded": false, "description": "Limited job" })),
+                subagent_text(FG, "Digging."),
+            ];
+            if returned_to_foreground {
+                for (task, backgrounded) in [("task-limited-bash", true), ("task-limited", true), ("task-limited-bash", false), ("task-limited", false)] {
+                    messages.push(system("task_updated", json!({ "task_id": task, "patch": { "is_backgrounded": backgrounded } })));
+                }
+            }
+            messages.push(json!({
+                "type": "assistant", "session_id": SESSION, "uuid": new_id(), "parent_tool_use_id": null, "error": "rate_limit",
+                "message": { "id": new_id(), "content": [{ "type": "text", "text": "You've hit your limit." }], "usage": { "input_tokens": 0, "output_tokens": 0 } },
+            }));
+            messages.push(json!({ "type": "result", "subtype": "success", "is_error": true, "result": "You've hit your limit.", "errors": [], "session_id": SESSION, "uuid": new_id() }));
+            // Zombie tail, then a real notification that arrives after all.
+            messages.push(system("task_progress", json!({ "task_id": "task-limited", "tool_use_id": FG, "description": "Still digging" })));
+            messages.push(system("task_notification", json!({ "task_id": "task-limited", "tool_use_id": FG, "status": "stopped", "summary": "Late notice." })));
+            cli.emit(&messages).await;
+
+            let completed = cli.until_root_turn_completed().await;
+            assert_eq!(payload(&completed)["state"], "failed");
+            let settled: Vec<Value> = of_kind(&cli.seen, "task.completed")
+                .filter(|e| subagent_of(e).is_none())
+                .map(|e| json!([payload(e)["taskId"], payload(e)["status"], payload(e)["toolUseId"], e.turn_id]))
+                .collect();
+            let turn = json!(cli.turn_id);
+            assert_eq!(
+                settled,
+                [json!(["task-limited-bash", "failed", null, turn]), json!(["task-limited", "failed", FG, turn])],
+                "returned {returned_to_foreground}"
+            );
+            // The launching call reads as a failed subagent, and its child turn is closed.
+            let launch = cli
+                .seen
+                .iter()
+                .find(|e| kind(e) == "item.completed" && e.item_id.as_ref().map(|i| i.as_str()) == Some(FG))
+                .unwrap();
+            assert_eq!(payload(launch)["data"]["agentStates"], json!({ FG: { "status": "failed" } }));
+            assert!(of_kind(&cli.seen, "turn.completed").any(|e| subagent_of(e) == Some((FG, "thread-1"))));
+
+            let mut late = Vec::new();
+            loop {
+                let event = next_until(&mut cli.events, &mut late, "task.completed").await;
+                if payload(&event)["summary"] == "Late notice." {
+                    break;
+                }
+            }
+            assert!(!of_kind(&late, "task.progress").any(|e| payload(e)["taskId"] == "task-limited"), "late progress cannot revive it");
+            let _ = cli.handle.stop().await;
+        }
+    }
+
+    /// 587083ded: background work, whether launched so, moved there or listed there, outlives the
+    /// turn that launched it; a foreground task that reported its own end is not ended again.
+    #[tokio::test]
+    async fn turn_end_leaves_background_and_already_ended_tasks_alone() {
+        let mut cli = ScriptedTurn::start(None).await;
+        cli.emit(&[
+            root_tool_use(0, "toolu_bg", "Agent", json!({ "description": "Background job", "prompt": "Take your time.", "run_in_background": true })),
+            system("task_started", json!({ "task_id": "task-bg-open", "tool_use_id": "toolu_bg", "task_type": "local_agent", "subagent_type": "general-purpose", "is_backgrounded": true, "description": "Background job" })),
+            tool_result("toolu_bg", "Async agent launched successfully."),
+            root_tool_use(1, "toolu_moved", "Bash", json!({ "command": "serve", "description": "Serve" })),
+            system("task_started", json!({ "task_id": "task-moved", "tool_use_id": "toolu_moved", "task_type": "local_bash", "is_backgrounded": false, "description": "Serve" })),
+            system("task_updated", json!({ "task_id": "task-moved", "patch": { "is_backgrounded": true } })),
+            tool_result("toolu_moved", "Moved to background."),
+            root_tool_use(2, "toolu_listed", "Bash", json!({ "command": "watch", "description": "Watch" })),
+            system("task_started", json!({ "task_id": "task-listed", "tool_use_id": "toolu_listed", "task_type": "local_bash", "is_backgrounded": false, "description": "Watch" })),
+            system("background_tasks_changed", json!({ "tasks": [
+                { "task_id": "task-bg-open", "task_type": "local_agent", "description": "Background job" },
+                { "task_id": "task-moved", "task_type": "local_bash", "description": "Serve" },
+                { "task_id": "task-listed", "task_type": "local_bash", "description": "Watch" },
+            ] })),
+            tool_result("toolu_listed", "Moved to background."),
+            root_tool_use(3, "toolu_reported_bash", "Bash", json!({ "command": "false", "description": "Fail" })),
+            system("task_started", json!({ "task_id": "task-reported-bash", "tool_use_id": "toolu_reported_bash", "task_type": "local_bash", "is_backgrounded": false, "description": "Fail" })),
+            system("task_updated", json!({ "task_id": "task-reported-bash", "patch": { "status": "failed", "error": "exit code 1" } })),
+            tool_result("toolu_reported_bash", "exit code 1"),
+            json!({ "type": "result", "subtype": "error_during_execution", "is_error": true, "errors": ["boom"], "session_id": SESSION, "uuid": new_id() }),
+        ])
+        .await;
+        let completed = cli.until_root_turn_completed().await;
+        assert_eq!(payload(&completed)["state"], "failed");
+        assert_eq!(of_kind(&cli.seen, "task.completed").count(), 0);
+        let _ = cli.handle.stop().await;
+    }
+
+    /// a769ed0fa: an interrupted launcher turn ends its open foreground subagent call as stopped.
+    #[tokio::test]
+    async fn an_interrupted_launcher_turn_ends_its_subagent_call_as_stopped() {
+        const FG: &str = "toolu_interrupted_agent";
+        let mut cli = ScriptedTurn::start(None).await;
+        cli.emit(&[
+            root_tool_use(0, FG, "Agent", json!({ "description": "Long job", "prompt": "Dig in." })),
+            system("task_started", json!({ "task_id": "task-interrupted", "tool_use_id": FG, "task_type": "local_agent", "subagent_type": "general-purpose", "description": "Long job" })),
+            subagent_text(FG, "Digging."),
+            json!({ "type": "result", "subtype": "error_during_execution", "is_error": false, "errors": ["Request was aborted."], "session_id": SESSION, "uuid": new_id() }),
+        ])
+        .await;
+        let completed = cli.until_root_turn_completed().await;
+        assert_eq!(payload(&completed)["state"], "interrupted");
+        let launch = cli
+            .seen
+            .iter()
+            .find(|e| subagent_of(e).is_none() && kind(e) == "item.completed" && e.item_id.as_ref().map(|i| i.as_str()) == Some(FG))
+            .unwrap();
+        assert_eq!(payload(launch)["data"]["agentStates"], json!({ FG: { "status": "stopped" } }));
+        let child = of_kind(&cli.seen, "turn.completed").find(|e| subagent_of(e) == Some((FG, "thread-1"))).expect("the child turn ends");
+        assert_eq!(payload(child)["state"], "interrupted");
+        let _ = cli.handle.stop().await;
+    }
+
+    /// a769ed0fa with Synara's `run.background`: a run `task_updated` moved to the background is not
+    /// closed by an interrupted launcher turn, even before the CLI lists it as a background task.
+    #[tokio::test]
+    async fn an_interrupted_launcher_turn_leaves_a_run_just_moved_to_the_background() {
+        const BG: &str = "toolu_backgrounded_agent";
+        let mut cli = ScriptedTurn::start(None).await;
+        cli.emit(&[
+            root_tool_use(0, BG, "Agent", json!({ "description": "Long job", "prompt": "Dig in." })),
+            system("task_started", json!({ "task_id": "task-backgrounded", "tool_use_id": BG, "task_type": "local_agent", "subagent_type": "general-purpose", "description": "Long job" })),
+            subagent_text(BG, "Digging."),
+            system("task_updated", json!({ "task_id": "task-backgrounded", "patch": { "is_backgrounded": true } })),
+            json!({ "type": "result", "subtype": "error_during_execution", "is_error": false, "errors": ["Request was aborted."], "session_id": SESSION, "uuid": new_id() }),
+        ])
+        .await;
+        let completed = cli.until_root_turn_completed().await;
+        assert_eq!(payload(&completed)["state"], "interrupted");
+        let launch = cli
+            .seen
+            .iter()
+            .find(|e| subagent_of(e).is_none() && kind(e) == "item.completed" && e.item_id.as_ref().map(|i| i.as_str()) == Some(BG))
+            .unwrap();
+        assert!(payload(launch)["data"].get("agentStates").is_none(), "a backgrounded run is not recorded as stopped");
+        assert!(
+            of_kind(&cli.seen, "turn.completed").all(|e| subagent_of(e) != Some((BG, "thread-1"))),
+            "a backgrounded run's child turn keeps running"
+        );
+        let _ = cli.handle.stop().await;
+    }
+
+    /// Cascade's own path: a known message kind the contract rejects is still shown, once.
+    #[tokio::test]
+    async fn a_known_message_the_contract_rejects_is_reported_once() {
+        let mut cli = ScriptedTurn::start(None).await;
+        let unreadable = json!({ "type": "auth_status", "isAuthenticating": "maybe", "output": 7, "session_id": SESSION, "uuid": new_id() });
+        cli.emit(&[
+            unreadable.clone(),
+            unreadable,
+            system("permission_denied", json!({ "tool_name": "Sentinel", "decision_reason": "end of stream" })),
+        ])
+        .await;
+        loop {
+            let warning = next_until(&mut cli.events, &mut cli.seen, "runtime.warning").await;
+            if payload(&warning)["message"] == "Sentinel was denied: end of stream" {
+                break;
+            }
+        }
+        let warnings: Vec<Value> = of_kind(&cli.seen, "runtime.warning").map(|e| payload(e)["message"].clone()).collect();
+        assert_eq!(
+            warnings,
+            ["Claude sent a 'auth_status' message this app could not read.", "Sentinel was denied: end of stream"].map(|m| json!(m))
+        );
+        let _ = cli.handle.stop().await;
+    }
+
+    /// 339e46b30 / 29b28b785: task messages that arrive after their turn ended stay on the turn that
+    /// started the task, not the one active by then.
+    #[tokio::test]
+    async fn late_task_messages_keep_the_turn_that_started_the_task() {
+        let mut cli = ScriptedTurn::start(None).await;
+        let first_turn = cli.turn_id.clone();
+        cli.emit(&[system("task_started", json!({ "task_id": "late-task", "task_type": "local_bash", "description": "Run sleep 60" })), success()]).await;
+        cli.until_root_turn_completed().await;
+        let second_turn = cli.next_turn("Something else").await;
+        assert_ne!(second_turn, first_turn);
+        cli.emit(&[
+            system("task_progress", json!({ "task_id": "late-task", "description": "Run sleep 60" })),
+            system("task_notification", json!({ "task_id": "late-task", "status": "stopped", "summary": "Stopped" })),
+        ])
+        .await;
+        next_until(&mut cli.events, &mut cli.seen, "task.completed").await;
+        let tasks: Vec<(String, Option<TurnId>)> =
+            cli.seen.iter().filter(|e| kind(e).starts_with("task.")).map(|e| (kind(e), e.turn_id.clone())).collect();
+        assert_eq!(
+            tasks,
+            [
+                ("task.started".to_owned(), Some(first_turn.clone())),
+                ("task.progress".to_owned(), Some(first_turn.clone())),
+                ("task.completed".to_owned(), Some(first_turn)),
+            ]
+        );
+        let _ = cli.handle.stop().await;
+    }
+
+    /// a21eb2b43: Claude Code restores a resumed session's saved usage totals into the new
+    /// process's first result, so that result only becomes the baseline.
+    #[tokio::test]
+    async fn the_first_result_of_a_resumed_process_only_sets_the_usage_baseline() {
+        let cursor = json!({ "threadId": "thread-1", "resume": SESSION, "turnCount": 3, "processedTokenTotal": 0, "tokenAccountingVersion": 1 });
+        let mut cli = ScriptedTurn::start(Some(cursor)).await;
+        let result = |input: u64, cost: f64| {
+            json!({
+                "type": "result", "subtype": "success", "is_error": false, "session_id": SESSION, "uuid": new_id(),
+                "usage": { "input_tokens": 1, "output_tokens": 1 }, "total_cost_usd": cost,
+                "modelUsage": { "claude-sonnet-5": { "inputTokens": input, "costUSD": cost } },
+            })
+        };
+        cli.emit(&[result(150, 2.0)]).await;
+        let restored = payload(&cli.until_root_turn_completed().await);
+        assert!(restored["modelUsage"].is_null(), "{restored}");
+        assert!(restored["totalCostUsd"].is_null(), "{restored}");
+
+        cli.next_turn("after").await;
+        cli.emit(&[result(200, 3.0)]).await;
+        let after = payload(&cli.until_root_turn_completed().await);
+        assert_eq!(after["modelUsage"]["claude-sonnet-5"]["inputTokens"], 50, "{after}");
+        assert_eq!(after["totalCostUsd"], 1.0, "{after}");
+        let _ = cli.handle.stop().await;
+    }
+
+    /// 4b4cee418: an MCP tool that mentions "agent" is a plain MCP call, not a subagent launch.
+    #[test]
+    fn an_mcp_tool_named_for_an_agent_is_not_a_subagent_launch() {
+        assert_eq!(classify_tool_item_type("mcp__agentmail__send_message"), CanonicalItemType::McpToolCall);
+        assert_eq!(classify_tool_item_type("mcp__server__run_agent"), CanonicalItemType::McpToolCall);
+        assert_eq!(classify_tool_item_type("Agent"), CanonicalItemType::CollabAgentToolCall);
+        assert_eq!(classify_tool_item_type("mcp__"), CanonicalItemType::McpToolCall);
+    }
+
+    /// 4b4cee418: Claude's bookkeeping, early retries and unknown subtypes stay out of the
+    /// transcript; data warnings, blocking hook feedback, refusals and later retries show.
+    #[tokio::test]
+    async fn claude_bookkeeping_early_retries_and_unknown_subtypes_stay_out_of_the_transcript() {
+        let mut cli = ScriptedTurn::start(None).await;
+        let mut messages = Vec::new();
+        for attempt in [1, 2, 3] {
+            messages.push(system("api_retry", json!({ "attempt": attempt, "max_retries": 3, "retry_delay_ms": 1500, "error_status": 503, "error": "server_error" })));
+        }
+        messages.push(system("api_retry", json!({ "attempt": 1, "max_retries": 10, "retry_delay_ms": 1500, "error_status": 429, "error": "rate_limit" })));
+        for line in [
+            json!({ "level": "info", "content": "Checking hooks" }),
+            json!({ "level": "notice", "content": "Stop says: all good" }),
+            json!({ "level": "warning", "content": "PostToolUse hook flagged lint errors" }),
+            json!({ "level": "notice", "content": "Stop says: tests still fail", "prevent_continuation": true }),
+        ] {
+            messages.push(system("informational", line));
+        }
+        for subtype in ["notification", "memory_recall", "ui_state", "turn_duration"] {
+            messages.push(system(subtype, json!({ "text": "toast" })));
+        }
+        for subtype in ["mirror_error", "instruction_size_warning", "session_writes_lost", "file_attachments_missing"] {
+            messages.push(system(subtype, json!({})));
+        }
+        messages.push(system("model_refusal_no_fallback", json!({ "content": "The model declined this request." })));
+        for subtype in ["future_unknown_subtype", "another_unknown_subtype", "future_unknown_subtype"] {
+            messages.push(system(subtype, json!({})));
+        }
+        messages.push(json!({ "type": "future_unknown_type", "session_id": SESSION }));
+        messages.push(system("permission_denied", json!({ "tool_name": "Sentinel", "decision_reason": "end of stream" })));
+        cli.emit(&messages).await;
+        loop {
+            let warning = next_until(&mut cli.events, &mut cli.seen, "runtime.warning").await;
+            if payload(&warning)["message"] == "Sentinel was denied: end of stream" {
+                break;
+            }
+        }
+        let warnings: Vec<Value> = of_kind(&cli.seen, "runtime.warning").map(|e| payload(e)["message"].clone()).collect();
+        assert_eq!(
+            warnings,
+            [
+                "Claude API error (HTTP 503), retrying.",
+                "Claude API error (rate limited), retrying.",
+                "PostToolUse hook flagged lint errors",
+                "Stop says: tests still fail",
+                "Claude could not sync part of this session's transcript.",
+                "Some Claude instructions exceeded the size limit.",
+                "Claude reported that some session data could not be saved.",
+                "Claude reported that some file attachments are missing.",
+                "The model declined this request.",
+                "Sentinel was denied: end of stream",
+            ]
+            .map(|m| json!(m))
+        );
+        let _ = cli.handle.stop().await;
+    }
+
+    /// 4b4cee418: ambient background tasks are tracked but never announced or listed.
+    #[tokio::test]
+    async fn ambient_background_tasks_are_not_announced() {
+        let mut cli = ScriptedTurn::start(None).await;
+        let bg1 = json!({ "task_id": "bg-1", "task_type": "local_bash", "description": "sleep 120" });
+        let bg2 = json!({ "task_id": "bg-2", "task_type": "subagent", "description": "beta" });
+        let ambient = json!({ "task_id": "bg-amb", "task_type": "monitor", "description": "watch logs", "ambient": true });
+        let ambient2 = json!({ "task_id": "bg-amb-2", "task_type": "local_bash", "description": "index", "ambient": true });
+        cli.emit(&[
+            system("background_tasks_changed", json!({ "tasks": [bg1] })),
+            system("background_tasks_changed", json!({ "tasks": [bg1, bg2, ambient] })),
+            system("background_tasks_changed", json!({ "tasks": [bg1, bg2, ambient, ambient2] })),
+            system("permission_denied", json!({ "tool_name": "Sentinel", "decision_reason": "end of stream" })),
+        ])
+        .await;
+        loop {
+            let warning = next_until(&mut cli.events, &mut cli.seen, "runtime.warning").await;
+            if payload(&warning)["message"] == "Sentinel was denied: end of stream" {
+                break;
+            }
+        }
+        let warnings: Vec<Value> = of_kind(&cli.seen, "runtime.warning").map(payload).collect();
+        let messages: Vec<&Value> = warnings.iter().map(|w| &w["message"]).collect();
+        assert_eq!(messages, [&json!("sleep 120"), &json!("beta"), &json!("Sentinel was denied: end of stream")]);
+        let listed: Vec<&Value> = warnings[1]["detail"]["tasks"].as_array().unwrap().iter().map(|t| &t["task_id"]).collect();
+        assert_eq!(listed, [&json!("bg-1"), &json!("bg-2")]);
+        let _ = cli.handle.stop().await;
     }
 
     /// One real turn against the installed `claude`, in the folder `CASCADE_CHAT_LIVE_DIR` names:

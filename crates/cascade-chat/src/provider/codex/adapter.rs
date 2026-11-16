@@ -45,8 +45,8 @@ use crate::provider::{
 };
 
 use super::app_server_manager::{
-    is_non_fatal_codex_error_message, parse_codex_user_input_questions, CodexAppServerManager,
-    CodexAppServerSendTurnInput, CodexAppServerStartSessionInput,
+    is_codex_unstable_features_warning, is_non_fatal_codex_error_message, parse_codex_user_input_questions,
+    CodexAppServerManager, CodexAppServerSendTurnInput, CodexAppServerStartSessionInput,
 };
 use super::turn_input::CodexImageInputItem;
 use crate::orchestration::activity_projection::sanitize_user_facing_error_message;
@@ -1418,9 +1418,12 @@ pub fn map_to_runtime_events(event: &ProviderEvent, canonical_thread_id: &Thread
         })),
         // Synara `CODEX_RUNTIME_WARNING_METHODS` (CodexAdapter.ts:107, 1842): a guardian or
         // runtime warning (a hook that needs attention) is a warning row; an approval review's
-        // approval is not news.
+        // approval is not news, nor is the unstable-features startup notice (b35eeab84).
         "guardianWarning" | "warning" => {
             let message = as_trimmed(payload, "message");
+            if event.method == "warning" && message.is_some_and(is_codex_unstable_features_warning) {
+                return Vec::new();
+            }
             if event.method == "guardianWarning" && message.is_some_and(|m| m.starts_with("Automatic approval review approved (")) {
                 return Vec::new();
             }
@@ -1775,6 +1778,17 @@ mod tests {
         }
         let approved = notification("guardianWarning", json!({ "message": "Automatic approval review approved (risk: low): ok" }));
         assert!(map_to_runtime_events(&approved, &ThreadId::new("thread")).is_empty());
+    }
+
+    /// b35eeab84: Codex's unstable-features startup notice describes opt-in configuration, so it
+    /// is not a warning row.
+    #[test]
+    fn the_unstable_features_notice_is_not_a_warning_activity() {
+        let notice = notification(
+            "warning",
+            json!({ "message": "Under-development features enabled: default_mode_request_user_input. Under-development features are incomplete and may behave unpredictably. To suppress this warning, set `suppress_unstable_features_warning = true` in /tmp/codex/config.toml." }),
+        );
+        assert!(map_to_runtime_events(&notice, &ThreadId::new("thread")).is_empty());
     }
 
     #[test]

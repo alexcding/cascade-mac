@@ -17,7 +17,7 @@
 //! overlays of `codexProcessEnv.ts`. The user's own codex home is used as it is.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashSet, VecDeque},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -63,6 +63,10 @@ const CODEX_PENDING_SETTLE_DEADLINE_MS: u64 = 2_000;
 const CODEX_TEARDOWN_EXIT_DEADLINE_MS: u64 = 5_000;
 /// How long an exited session keeps reading what the process wrote before it left.
 const CODEX_EXIT_DRAIN_DEADLINE_MS: u64 = 1_000;
+/// Synara `CODEX_COLLAB_RECEIVER_MAX_ENTRIES` (codexAppServerManager.ts:1106): child (sub-agent)
+/// conversations outlive the parent turn that spawned them, so their routing is kept until the
+/// child closes; capped for sessions whose children never report a close.
+const CODEX_COLLAB_RECEIVER_MAX_ENTRIES: usize = 200;
 
 const ANSI_ESCAPE_CHAR: char = '\u{1b}';
 const BENIGN_ERROR_LOG_SNIPPETS: &[&str] = &[
@@ -134,6 +138,41 @@ struct PendingUserInputRequest {
     item_id: Option<ProviderItemId>,
     provider_thread_id: Option<String>,
     provider_parent_thread_id: Option<String>,
+}
+
+/// A map kept in insertion order, as Synara's `Map` caches are, so the oldest entry is the one
+/// [`Self::set`] lets go of (Synara `setRecentCacheEntry`, codexAppServerManager.ts:1119).
+#[derive(Debug)]
+struct RecentCache<V> {
+    entries: VecDeque<(String, V)>,
+}
+
+impl<V> Default for RecentCache<V> {
+    fn default() -> Self {
+        Self { entries: VecDeque::new() }
+    }
+}
+
+impl<V> RecentCache<V> {
+    fn get(&self, key: &str) -> Option<&V> {
+        self.entries.iter().find(|(found, _)| found == key).map(|(_, value)| value)
+    }
+
+    fn set(&mut self, key: String, value: V, max_entries: usize) {
+        self.remove(&key);
+        self.entries.push_back((key, value));
+        while self.entries.len() > max_entries {
+            self.entries.pop_front();
+        }
+    }
+
+    fn remove(&mut self, key: &str) {
+        self.entries.retain(|(found, _)| found != key);
+    }
+
+    fn clear(&mut self) {
+        self.entries.clear();
+    }
 }
 
 /// Synara `ResolvedCollaborationRoute` (codexAppServerManager.ts:176)
@@ -281,8 +320,11 @@ fn is_codex_protocol_envelope(value: &Map<String, Value>) -> bool {
     value.contains_key("id") && (value.contains_key("result") || value.contains_key("error"))
 }
 
+/// Synara `normalizeCodexUserVisibleErrorMessage` (codexStderr.ts:57)
 fn normalize_codex_user_visible_error_message(raw_message: &str) -> String {
-    let message = normalize_codex_process_line(raw_message);
+    let line = normalize_codex_process_line(raw_message);
+    // Extract complete JSON log messages; preserve unrecognized output for inspection.
+    let message = if line.starts_with('{') { read_codex_log(&line).map_or(line, |log| log.message) } else { line };
     let marker = "failed to parse function arguments: duplicate field `";
     if let Some(at) = message.to_ascii_lowercase().find(marker) {
         let rest = &message[at + marker.len()..];
@@ -669,29 +711,86 @@ pub fn parse_codex_user_input_questions(payload: Option<&Value>) -> Option<Vec<U
     (!parsed.is_empty()).then_some(parsed)
 }
 
-/// Synara `classifyCodexStderrLine` (codexAppServerManager.ts:1025): a stderr line worth
-/// showing, or `None` for log noise below ERROR and known-benign errors.
+/// Synara `classifyCodexStderrLine` (codexAppServerManager.ts:1025) over its shared
+/// `classifyCodexStderr` (codexStderr.ts:69) with `errorLikePlainLinesOnly`: a stderr line worth
+/// showing, or `None` for log noise below ERROR, known-benign errors, the unstable-features
+/// notice and plain lines that do not read as errors. Synara's user-config MCP OAuth and
+/// mirrored-config cases are not ported (Cascade has neither).
 pub fn classify_codex_stderr_line(raw_line: &str) -> Option<String> {
     let line = normalize_codex_process_line(raw_line);
     if is_ignorable_codex_process_line(&line) {
         return None;
     }
-    if let Some(level) = codex_stderr_log_level(&line) {
-        if level != "ERROR" {
+    let log = read_codex_log(&line);
+    if is_codex_unstable_features_warning(log.as_ref().map_or(line.as_str(), |log| log.message.as_str())) {
+        return None;
+    }
+    if let Some(log) = &log {
+        if log.level != "ERROR" || BENIGN_ERROR_LOG_SNIPPETS.iter().any(|snippet| log.message.contains(snippet)) {
             return None;
         }
-        if BENIGN_ERROR_LOG_SNIPPETS.iter().any(|snippet| line.contains(snippet)) {
+    }
+    // Plain (non-log) stderr is mostly progress chatter; only error-like lines are worth a row
+    // (Synara `ERROR_LIKE_LINE`: /error|failed|fatal|panic|exception|denied|refused/i).
+    if log.is_none() {
+        let lower = line.to_lowercase();
+        if !["error", "failed", "fatal", "panic", "exception", "denied", "refused"].iter().any(|word| lower.contains(word))
+        {
             return None;
         }
     }
     Some(normalize_codex_user_visible_error_message(&line))
 }
 
-/// The level of a line shaped like Synara `CODEX_STDERR_LOG_REGEX`:
-/// `^\d{4}-\d{2}-\d{2}T\S+\s+(TRACE|DEBUG|INFO|WARN|ERROR)\s+\S+:\s+(.*)$`.
-fn codex_stderr_log_level(line: &str) -> Option<&str> {
-    let mut parts = line.split_whitespace();
-    let timestamp = parts.next()?.as_bytes();
+/// Synara `isCodexUnstableFeaturesWarning` (codexStderr.ts:23): this startup notice describes
+/// opt-in configuration, not a failure of the task.
+pub(crate) fn is_codex_unstable_features_warning(message: &str) -> bool {
+    message.trim_start().starts_with("Under-development features enabled:")
+        && message.contains("suppress_unstable_features_warning = true")
+}
+
+/// A Codex log line, as Synara `readLog` (codexStderr.ts:31) reads it.
+struct CodexLog {
+    level: String,
+    message: String,
+}
+
+/// Synara `readLog` (codexStderr.ts:31): a complete log envelope, the text shape of `LOG_LINE`
+/// or a JSON log; arbitrary JSON and malformed output remain visible.
+fn read_codex_log(line: &str) -> Option<CodexLog> {
+    if let Some(log) = read_codex_text_log(line) {
+        return Some(log);
+    }
+    if !line.starts_with('{') {
+        return None;
+    }
+    let log: Value = serde_json::from_str(line).ok()?;
+    let fields = log.get("fields");
+    let message = fields
+        .and_then(|fields| fields.get("message"))
+        .filter(|message| !message.is_null())
+        .or_else(|| fields.and_then(|fields| fields.get("error")))?
+        .as_str()?;
+    let level = log.get("level").and_then(Value::as_str)?;
+    let valid = log.get("timestamp").is_some_and(Value::is_string)
+        && log.get("target").is_some_and(Value::is_string)
+        && CODEX_LOG_LEVELS.contains(&level);
+    valid.then(|| CodexLog { level: level.to_string(), message: message.to_string() })
+}
+
+const CODEX_LOG_LEVELS: [&str; 5] = ["TRACE", "DEBUG", "INFO", "WARN", "ERROR"];
+
+/// A line shaped like Synara `LOG_LINE` (codexStderr.ts:11):
+/// `^(\d{4}-\d{2}-\d{2}T\S+)\s+(TRACE|DEBUG|INFO|WARN|ERROR)\s+(\S+):\s+(.*)$`.
+fn read_codex_text_log(line: &str) -> Option<CodexLog> {
+    /// The leading run of non-whitespace and what follows the whitespace after it, which must
+    /// be there.
+    fn token(text: &str) -> Option<(&str, &str)> {
+        let end = text.find(char::is_whitespace)?;
+        Some((&text[..end], text[end..].trim_start()))
+    }
+    let (timestamp, rest) = token(line)?;
+    let timestamp = timestamp.as_bytes();
     let dated = timestamp.len() > 11
         && timestamp[..4].iter().all(u8::is_ascii_digit)
         && timestamp[4] == b'-'
@@ -699,11 +798,10 @@ fn codex_stderr_log_level(line: &str) -> Option<&str> {
         && timestamp[7] == b'-'
         && timestamp[8..10].iter().all(u8::is_ascii_digit)
         && timestamp[10] == b'T';
-    let level = parts.next()?;
-    let target = parts.next()?;
-    let has_message = parts.next().is_some();
-    (dated && ["TRACE", "DEBUG", "INFO", "WARN", "ERROR"].contains(&level) && target.ends_with(':') && has_message)
-        .then_some(level)
+    let (level, rest) = token(rest)?;
+    let (target, message) = token(rest)?;
+    (dated && CODEX_LOG_LEVELS.contains(&level) && target.len() > 1 && target.ends_with(':'))
+        .then(|| CodexLog { level: level.to_string(), message: message.to_string() })
 }
 
 /// Synara `isRecoverableThreadResumeError` (codexAppServerManager.ts:1047)
@@ -793,8 +891,8 @@ pub struct CodexAppServerManager {
     pending_approvals: Vec<PendingApprovalRequest>,
     pending_user_inputs: Vec<PendingUserInputRequest>,
     session_approval_override: Option<CodexTurnOverrides>,
-    collab_receiver_turns: HashMap<String, TurnId>,
-    collab_receiver_parents: HashMap<String, String>,
+    collab_receiver_turns: RecentCache<TurnId>,
+    collab_receiver_parents: RecentCache<String>,
     /// Synara `reviewTurnIds`: the turns of a native review run (`review/start`).
     review_turn_ids: HashSet<TurnId>,
     /// Cascade: the text of the review that just exited, and the agent messages that only repeat
@@ -845,8 +943,8 @@ impl CodexAppServerManager {
             pending_approvals: Vec::new(),
             pending_user_inputs: Vec::new(),
             session_approval_override: None,
-            collab_receiver_turns: HashMap::new(),
-            collab_receiver_parents: HashMap::new(),
+            collab_receiver_turns: RecentCache::default(),
+            collab_receiver_parents: RecentCache::default(),
             review_turn_ids: HashSet::new(),
             review_echo: None,
             review_echo_items: HashSet::new(),
@@ -1042,8 +1140,6 @@ impl CodexAppServerManager {
     /// Synara `sendTurn` (codexAppServerManager.ts:1648)
     pub async fn send_turn(&mut self, input: CodexAppServerSendTurnInput) -> Result<ProviderTurnStartResult> {
         self.require_session()?;
-        self.collab_receiver_turns.clear();
-        self.collab_receiver_parents.clear();
 
         // Normal sends never interrupt active work. The orchestration layer decides when a queued
         // follow-up is ready to become a provider turn.
@@ -1526,6 +1622,8 @@ impl CodexAppServerManager {
     /// (time-boxed), and the session marked closed.
     async fn begin_stop(&mut self) {
         self.stopping = true;
+        self.collab_receiver_turns.clear();
+        self.collab_receiver_parents.clear();
         self.requests.reject_all("Session stopped before request completed.");
         if self.has_pending_human_requests() {
             let deadline = Duration::from_millis(CODEX_PENDING_SETTLE_DEADLINE_MS);
@@ -1713,6 +1811,13 @@ impl CodexAppServerManager {
         let raw_route = read_route_fields(params.as_ref());
         self.remember_collab_receiver_turns(params.as_ref(), raw_route.turn_id.as_ref());
         let route = self.resolve_collaboration_route(params.as_ref());
+        if let (true, "thread/closed", Some(provider_thread_id)) =
+            (route.is_child_conversation, method, route.provider_thread_id.as_deref())
+        {
+            // The child conversation ended; nothing more will arrive from it.
+            self.collab_receiver_turns.remove(provider_thread_id);
+            self.collab_receiver_parents.remove(provider_thread_id);
+        }
         if route.is_child_conversation && should_suppress_child_conversation_notification(method) {
             return;
         }
@@ -1798,8 +1903,6 @@ impl CodexAppServerManager {
                 if route.is_child_conversation {
                     return;
                 }
-                self.collab_receiver_turns.clear();
-                self.collab_receiver_parents.clear();
                 if let Some(turn_id) = &raw_route.turn_id {
                     self.review_turn_ids.remove(turn_id);
                 }
@@ -1821,8 +1924,6 @@ impl CodexAppServerManager {
                 if route.is_child_conversation {
                     return;
                 }
-                self.collab_receiver_turns.clear();
-                self.collab_receiver_parents.clear();
                 if let Some(turn_id) = &raw_route.turn_id {
                     self.review_turn_ids.remove(turn_id);
                 }
@@ -2091,14 +2192,23 @@ impl CodexAppServerManager {
     }
 
     /// Synara `resolveCollaborationRoute` (codexAppServerManager.ts:4957)
-    fn resolve_collaboration_route(&self, params: Option<&Value>) -> ResolvedCollaborationRoute {
+    fn resolve_collaboration_route(&mut self, params: Option<&Value>) -> ResolvedCollaborationRoute {
         let conversation_id = read_provider_conversation_id(params);
-        let parent_turn_id =
-            conversation_id.as_ref().and_then(|id| self.collab_receiver_turns.get(id)).cloned();
         let provider_thread_id = normalize_provider_thread_id(conversation_id.as_deref());
-        let mapped_provider_parent_thread_id =
-            conversation_id.as_ref().and_then(|id| self.collab_receiver_parents.get(id)).cloned();
         let active_provider_thread_id = self.provider_thread_id();
+        // Receiver maps outlive parent turns, so never let a stale entry reroute the active root
+        // conversation as a child.
+        let is_active_root_conversation = provider_thread_id.is_some() && provider_thread_id == active_provider_thread_id;
+        let mapped_parent_turn_id = conversation_id
+            .as_ref()
+            .filter(|_| !is_active_root_conversation)
+            .and_then(|id| self.collab_receiver_turns.get(id))
+            .cloned();
+        let mapped_provider_parent_thread_id = conversation_id
+            .as_ref()
+            .filter(|_| !is_active_root_conversation)
+            .and_then(|id| self.collab_receiver_parents.get(id))
+            .cloned();
         // A child can speak before its collab tool call populates the maps: during a live turn,
         // another provider thread belongs to that turn's conversation.
         let is_unmapped_child_conversation = mapped_provider_parent_thread_id.is_none()
@@ -2110,6 +2220,22 @@ impl CodexAppServerManager {
         let provider_parent_thread_id = mapped_provider_parent_thread_id
             .clone()
             .or_else(|| is_unmapped_child_conversation.then(|| active_provider_thread_id.clone()).flatten());
+        let mut parent_turn_id = mapped_parent_turn_id;
+        if is_unmapped_child_conversation {
+            // Codex often spawns children without a collab tool-call item, so this fallback may be
+            // the only time the child is recognized. Remember it so notifications after the parent
+            // turn ends still route as a child.
+            if parent_turn_id.is_none() {
+                parent_turn_id = self.session.active_turn_id.clone();
+            }
+            if let Some(child) = &provider_thread_id {
+                self.remember_child_conversation(
+                    child.clone(),
+                    active_provider_thread_id.clone(),
+                    parent_turn_id.clone(),
+                );
+            }
+        }
         ResolvedCollaborationRoute {
             is_child_conversation: parent_turn_id.is_some()
                 || provider_parent_thread_id.is_some()
@@ -2131,10 +2257,37 @@ impl CodexAppServerManager {
         }
         let parent_provider_thread_id = normalize_provider_thread_id(read_provider_conversation_id(params).as_deref());
         for receiver_thread_id in decode_subagent_receiver_thread_ids(item) {
-            self.collab_receiver_turns.insert(receiver_thread_id.clone(), parent_turn_id.clone());
-            if let Some(parent) = &parent_provider_thread_id {
-                self.collab_receiver_parents.insert(receiver_thread_id, parent.clone());
-            }
+            self.remember_child_conversation(
+                receiver_thread_id,
+                parent_provider_thread_id.clone(),
+                Some(parent_turn_id.clone()),
+            );
+        }
+    }
+
+    /// Synara `rememberChildConversation` (codexAppServerManager.ts:5363)
+    fn remember_child_conversation(
+        &mut self,
+        child_provider_thread_id: String,
+        parent_provider_thread_id: Option<String>,
+        parent_turn_id: Option<TurnId>,
+    ) {
+        if parent_provider_thread_id.as_ref() == Some(&child_provider_thread_id) {
+            return;
+        }
+        if let Some(parent_turn_id) = parent_turn_id {
+            self.collab_receiver_turns.set(
+                child_provider_thread_id.clone(),
+                parent_turn_id,
+                CODEX_COLLAB_RECEIVER_MAX_ENTRIES,
+            );
+        }
+        if let Some(parent_provider_thread_id) = parent_provider_thread_id {
+            self.collab_receiver_parents.set(
+                child_provider_thread_id,
+                parent_provider_thread_id,
+                CODEX_COLLAB_RECEIVER_MAX_ENTRIES,
+            );
         }
     }
 }
@@ -2418,7 +2571,88 @@ mod tests {
             Some("2026-10-05T10:00:00Z ERROR codex: boom".into())
         );
         assert_eq!(classify_codex_stderr_line("^CToken usage: 12"), None);
-        assert_eq!(classify_codex_stderr_line("plain failure"), Some("plain failure".into()));
+        assert_eq!(classify_codex_stderr_line("plain write failed"), Some("plain write failed".into()));
+    }
+
+    /// 89ca18cdf: JSON log lines are read as logs, so a WARN stays out and an ERROR shows its
+    /// message; JSON that is not a complete log stays as it is.
+    #[test]
+    fn json_stderr_logs_are_classified() {
+        let warn = json!({
+            "timestamp": "2026-10-15T20:05:38.509122Z",
+            "level": "WARN",
+            "fields": { "message": "ignoring interface.icon_small: icon path must resolve under plugin assets/" },
+            "target": "codex_skills::interface",
+        });
+        assert_eq!(classify_codex_stderr_line(&warn.to_string()), None);
+        let error = json!({
+            "timestamp": "2026-10-15T20:05:42.503791Z",
+            "level": "ERROR",
+            "fields": { "message": "Permission denied opening the working directory" },
+            "target": "codex_core::runtime",
+        });
+        assert_eq!(
+            classify_codex_stderr_line(&error.to_string()),
+            Some("Permission denied opening the working directory".into())
+        );
+        let by_error_field = json!({
+            "timestamp": "2026-10-15T20:05:42.503791Z",
+            "level": "ERROR",
+            "fields": { "error": "failed to refresh OAuth tokens for server cascade: invalid_grant" },
+            "target": "codex_rmcp_client::oauth::refresh_transaction",
+        });
+        assert_eq!(
+            classify_codex_stderr_line(&by_error_field.to_string()),
+            Some("failed to refresh OAuth tokens for server cascade: invalid_grant".into())
+        );
+        let benign = json!({
+            "timestamp": "2026-10-15T20:05:42.503791Z",
+            "level": "ERROR",
+            "fields": { "message": "state db missing rollout path for thread 019" },
+            "target": "codex_core::state",
+        });
+        assert_eq!(classify_codex_stderr_line(&benign.to_string()), None);
+        // Not a complete log envelope: kept whole when it reads as an error.
+        let loose = json!({ "level": "ERROR", "message": "upstream error" }).to_string();
+        assert_eq!(classify_codex_stderr_line(&loose), Some(loose.clone()));
+    }
+
+    /// 374d19b40: plain stderr keeps only lines that read as errors.
+    #[test]
+    fn plain_stderr_keeps_only_error_like_lines() {
+        for line in [
+            "Loading plugins from cache",
+            "Connecting to MCP server stripe",
+            r#"{"level":"WARN","message":"Check the project configuration"}"#,
+        ] {
+            assert_eq!(classify_codex_stderr_line(line), None, "{line}");
+        }
+        for line in [
+            "thread/resume failed: no rollout found",
+            "FATAL: cannot open sandbox",
+            "thread 'main' panicked at src/lib.rs:10",
+            "Unhandled exception in worker",
+            "connection refused by upstream",
+            "Access denied for the workspace",
+        ] {
+            assert_eq!(classify_codex_stderr_line(line), Some(line.to_string()), "{line}");
+        }
+    }
+
+    /// b35eeab84: the unstable-features notice is opt-in configuration, not a failure, in either
+    /// shape.
+    #[test]
+    fn the_unstable_features_notice_is_dropped_from_stderr() {
+        let notice = "Under-development features enabled: default_mode_request_user_input. To suppress this warning, \
+                      set `suppress_unstable_features_warning = true` in /tmp/codex/config.toml.";
+        assert_eq!(classify_codex_stderr_line(notice), None);
+        let logged = json!({
+            "timestamp": "2026-10-15T20:05:42.503791Z",
+            "level": "ERROR",
+            "fields": { "message": notice },
+            "target": "codex_core::features",
+        });
+        assert_eq!(classify_codex_stderr_line(&logged.to_string()), None);
     }
 
     #[test]
@@ -2443,6 +2677,125 @@ mod tests {
         assert_eq!(mode["settings"]["model"], "gpt-x");
         assert_eq!(mode["settings"]["reasoning_effort"], "medium");
         assert!(build_codex_collaboration_mode(None, Some("gpt-x"), None).is_none());
+    }
+
+    /// A manager mid parent turn `turn_parent` on provider thread `provider_parent`, as
+    /// Synara's `createCollabNotificationHarness` sets it up.
+    fn late_child_harness() -> (CodexAppServerManager, mpsc::Receiver<ProviderEvent>) {
+        let (events, receiver) = mpsc::channel(1024);
+        let input = CodexAppServerStartSessionInput {
+            thread_id: ThreadId::new("thread_1"),
+            provider_instance_id: None,
+            lifecycle_generation: None,
+            cwd: Some("/work".into()),
+            model: None,
+            service_tier: None,
+            resume_cursor: None,
+            fork_source_resume_cursor: None,
+            provider_options: None,
+            runtime_mode: RuntimeMode::FullAccess,
+            agent_gateway: None,
+        };
+        let mut manager = CodexAppServerManager::new(&input, events);
+        manager.update_session(|session| {
+            session.status = ProviderSessionStatus::Running;
+            session.active_turn_id = Some(TurnId::new("turn_parent"));
+            session.resume_cursor = Some(json!({ "threadId": "provider_parent" }));
+        });
+        (manager, receiver)
+    }
+
+    fn drain(receiver: &mut mpsc::Receiver<ProviderEvent>) -> Vec<ProviderEvent> {
+        std::iter::from_fn(|| receiver.try_recv().ok()).collect()
+    }
+
+    async fn send_inferred_child_delta(manager: &mut CodexAppServerManager, child: &str) {
+        let params = json!({ "threadId": child, "turnId": "turn_child_early", "itemId": "msg_child_early", "delta": "early" });
+        manager.handle_server_notification("item/agentMessage/delta", Some(params)).await;
+    }
+
+    async fn complete_parent_turn(manager: &mut CodexAppServerManager, receiver: &mut mpsc::Receiver<ProviderEvent>) {
+        let params = json!({ "threadId": "provider_parent", "turn": { "id": "turn_parent", "status": "completed" } });
+        manager.handle_server_notification("turn/completed", Some(params)).await;
+        assert_eq!(manager.session.status, ProviderSessionStatus::Ready);
+        assert_eq!(manager.session.active_turn_id, None);
+        drain(receiver);
+    }
+
+    /// The child's late turn, after the parent's ended: every event it emits is routed as the
+    /// child's, under the parent turn that spawned it, and the parent session is not touched.
+    async fn expect_late_child_routed(
+        manager: &mut CodexAppServerManager,
+        receiver: &mut mpsc::Receiver<ProviderEvent>,
+        child: &str,
+    ) {
+        manager
+            .handle_server_notification("turn/started", Some(json!({ "threadId": child, "turn": { "id": "turn_child_late" } })))
+            .await;
+        let delta = json!({ "threadId": child, "turnId": "turn_child_late", "itemId": "msg_child_late", "delta": "late" });
+        manager.handle_server_notification("item/agentMessage/delta", Some(delta)).await;
+        let completed = json!({ "threadId": child, "turn": { "id": "turn_child_late", "status": "completed" } });
+        manager.handle_server_notification("turn/completed", Some(completed)).await;
+        let emitted = drain(receiver);
+        assert_eq!(emitted.len(), 3);
+        for event in &emitted {
+            assert_eq!(event.parent_turn_id, Some(TurnId::new("turn_parent")), "{}", event.method);
+            assert_eq!(event.provider_thread_id.as_deref(), Some(child));
+            assert_eq!(event.provider_parent_thread_id.as_deref(), Some("provider_parent"));
+        }
+    }
+
+    #[tokio::test]
+    async fn a_collab_mapped_child_stays_a_child_after_the_parent_turn_completes() {
+        let (mut manager, mut receiver) = late_child_harness();
+        let collab = json!({
+            "item": { "type": "collabAgentToolCall", "id": "call_collab_late", "receiverThreadIds": ["child_mapped"] },
+            "threadId": "provider_parent",
+            "turnId": "turn_parent",
+        });
+        manager.handle_server_notification("item/completed", Some(collab)).await;
+        complete_parent_turn(&mut manager, &mut receiver).await;
+
+        expect_late_child_routed(&mut manager, &mut receiver, "child_mapped").await;
+        assert_eq!(manager.session.status, ProviderSessionStatus::Ready);
+        assert_eq!(manager.session.active_turn_id, None);
+    }
+
+    #[tokio::test]
+    async fn a_child_first_seen_through_the_fallback_is_remembered() {
+        let (mut manager, mut receiver) = late_child_harness();
+        send_inferred_child_delta(&mut manager, "child_inferred").await;
+        complete_parent_turn(&mut manager, &mut receiver).await;
+
+        expect_late_child_routed(&mut manager, &mut receiver, "child_inferred").await;
+        assert_eq!(manager.session.status, ProviderSessionStatus::Ready);
+        assert_eq!(manager.session.active_turn_id, None);
+    }
+
+    #[tokio::test]
+    async fn a_child_mapping_is_forgotten_once_the_child_closes() {
+        let (mut manager, _receiver) = late_child_harness();
+        send_inferred_child_delta(&mut manager, "child_inferred").await;
+        assert_eq!(manager.collab_receiver_parents.get("child_inferred").map(String::as_str), Some("provider_parent"));
+
+        manager.handle_server_notification("thread/closed", Some(json!({ "threadId": "child_inferred" }))).await;
+
+        assert!(manager.collab_receiver_parents.get("child_inferred").is_none());
+        assert!(manager.collab_receiver_turns.get("child_inferred").is_none());
+        assert_eq!(manager.session.status, ProviderSessionStatus::Running);
+        assert_eq!(manager.session.active_turn_id, Some(TurnId::new("turn_parent")));
+    }
+
+    #[tokio::test]
+    async fn remembered_child_mappings_are_bounded() {
+        let (mut manager, _receiver) = late_child_harness();
+        for index in 0..250 {
+            send_inferred_child_delta(&mut manager, &format!("child_{index}")).await;
+        }
+        assert!(manager.collab_receiver_parents.entries.len() <= CODEX_COLLAB_RECEIVER_MAX_ENTRIES);
+        assert!(manager.collab_receiver_turns.entries.len() <= CODEX_COLLAB_RECEIVER_MAX_ENTRIES);
+        assert!(manager.collab_receiver_parents.get("child_249").is_some());
+        assert!(manager.collab_receiver_parents.get("child_0").is_none());
     }
 
     #[test]

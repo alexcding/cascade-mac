@@ -1274,7 +1274,8 @@ impl ProviderRuntimeIngestion {
 
     /// Synara `dispatchActivityUpdate`: append an activity unless it repeats the last update
     /// under the same dedupe key; a Claude reasoning row, and a command's progress row
-    /// (3f55b77ef), keeps its first position and never reopens once final.
+    /// (3f55b77ef), keeps its first position and never reopens once final, and is stamped with
+    /// when its latest update came (`lastActivityAt`, 0d2876627).
     fn dispatch_activity_update(
         &mut self,
         event: &ProviderRuntimeEvent,
@@ -1284,6 +1285,7 @@ impl ProviderRuntimeIngestion {
         let is_claude_reasoning = event.provider.as_str() == "claudeAgent"
             && matches!(&event.body, ProviderRuntimeEventBody::ItemUpdated(p) | ProviderRuntimeEventBody::ItemCompleted(p) if p.item_type == CanonicalItemType::Reasoning);
         let has_stable_activity = is_claude_reasoning || provider_runtime_command_progress_key(event).is_some();
+        let mut updated_at = None;
         if has_stable_activity {
             let previous = self
                 .stable_activity_by_id
@@ -1297,6 +1299,7 @@ impl ProviderRuntimeIngestion {
                 if previous_status == Some("failed") || (previous_status == Some("completed") && status != Some("completed")) {
                     return;
                 }
+                updated_at = Some(activity.created_at.clone());
                 activity.created_at = previous.created_at.clone();
                 activity.sequence = previous.sequence;
             }
@@ -1307,6 +1310,13 @@ impl ProviderRuntimeIngestion {
             if self.latest_activity_update_fingerprint_by_key.get(key) == Some(fingerprint) {
                 return;
             }
+        }
+        // Stamped after the fingerprint: a repeated identical snapshot stays a duplicate. The row
+        // keeps its first createdAt; the payload says when this update was observed, so live rows
+        // read recent activity and elapsed time from the latest update (Synara
+        // `withLastActivityAt`).
+        if let (Some(updated_at), Value::Object(payload)) = (updated_at, &mut activity.payload) {
+            payload.insert("lastActivityAt".into(), json!(updated_at));
         }
         self.dispatch(InternalThreadCommand::ActivityAppend(ThreadActivityAppendCommand {
             require_unarchived: None,
@@ -2773,6 +2783,9 @@ mod tests {
             assert_eq!(updated.len(), 1, "{provider}: {updated:#?}");
             assert_eq!(updated[0].created_at.as_str(), "2026-10-06T12:00:00.000Z");
             assert_eq!(updated[0].payload["data"]["elapsedSeconds"].as_f64(), Some(2.0));
+            // 0d2876627: the row stays anchored at the first update and records when the latest
+            // one arrived, so live timing reads from the latest update.
+            assert_eq!(updated[0].payload["lastActivityAt"], "2026-10-06T12:00:02.000Z", "{provider}");
             // A replacement runtime may reuse ids and send an identical snapshot: a row of its own.
             h.feed(progress(2, "long-command-turn", Some("replacement-runtime")));
             assert_eq!(rows(&h).len(), 2, "{provider}");

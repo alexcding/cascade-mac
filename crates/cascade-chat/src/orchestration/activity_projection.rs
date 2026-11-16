@@ -463,10 +463,12 @@ fn build_context_window_activity_payload(event: &ProviderRuntimeEvent) -> Option
         .and_then(|refs| refs.provider_thread_id.as_deref())
         .filter(|id| !id.is_empty())
     {
+        // Codex's native thread is the usage session itself: a resumed session reports the same
+        // cumulative totals under a new generation, so the generation stays out (e6bff7490).
         let generation = event
             .lifecycle_generation
             .as_deref()
-            .filter(|g| !g.is_empty())
+            .filter(|g| !g.is_empty() && event.provider.as_str() != "codex")
             .map(|g| format!(":{g}"))
             .unwrap_or_default();
         out.insert("usageSessionId".into(), json!(format!("{provider_thread_id}{generation}")));
@@ -1793,6 +1795,29 @@ mod tests {
         assert_eq!(rows[0].kind, "tool.updated");
         let key = provider_activity_update_dedupe_key(&sample, &ThreadId::new("thread-1"), &rows[0]);
         assert_eq!(key.as_deref(), Some("thread-1:claudeAgent:tool.updated:toolu_1"));
+    }
+
+    /// e6bff7490 (providerRuntimeActivityProjection.test.ts): a resumed Codex session's usage is
+    /// keyed by its native session alone, so its totals are not counted twice; Claude's keeps the
+    /// generation.
+    #[test]
+    fn a_resumed_codex_sessions_usage_session_drops_the_generation() {
+        for (provider, usage_session_id) in
+            [("codex", "native-session"), ("claudeAgent", "native-session:generation-after-restart")]
+        {
+            let sample = event(json!({
+                "eventId": format!("{provider}-resumed-usage"), "provider": provider, "threadId": "thread-1",
+                "createdAt": "2026-10-05T10:00:00.000Z",
+                "type": "thread.token-usage.updated",
+                "lifecycleGeneration": "generation-after-restart",
+                "providerRefs": { "providerThreadId": "native-session" },
+                "payload": { "usage": { "usedTokens": 0, "totalProcessedTokens": 4_200 } }
+            }));
+            let rows = project_provider_runtime_activities(&sample, None);
+            let row = rows.iter().find(|row| row.kind == "context-window.updated").expect(provider);
+            assert_eq!(row.payload["usageSessionId"], usage_session_id, "{provider}");
+            assert_eq!(row.payload["totalProcessedTokens"].as_f64(), Some(4_200.0), "{provider}");
+        }
     }
 
     #[test]

@@ -80,6 +80,38 @@ that applies is ported):
   ClaudeAdapter's `turn/steerSubagent` error type, all for `steerSubagent`, which is not ported
   (the engine refuses every send to a child thread before deciding); the crash-resume record's
   detail snapshot in `quitResume.ts` (no crash resume here); and the web half.
+- `bda49347a` Codex child→parent collab routing kept (capped at 200) until the child's
+  `thread/closed` or the session stops, and children found by the unmapped fallback
+  remembered; `89ca18cdf` Codex stderr JSON log lines classified by level and message (the
+  user-config MCP OAuth case not ported); `374d19b40` plain Codex stderr kept only when
+  error-like; `b35eeab84` the unstable-features notice dropped from stderr and `warning`
+  (the rate-limit and web parts not ported).
+- `0d2876627` a heartbeat `tool_progress` (`<id>-heartbeat-<n>`) reports on its own tool and one
+  arriving after the tool finished is dropped (no `subagentToolOwners` routing); a stable
+  progress row keeps its first `createdAt` and is stamped `lastActivityAt`.
+- `9fd08c1ff`/`d453766b5` a superseded generation's subagent settling events and
+  `item.completed` still accepted, so child threads settle (only the subagent case of Synara's
+  stale-generation gate); `e6bff7490` Codex `usageSessionId` drops the generation.
+- `b2d550f91` a finished task ignores late `task_updated`, `task_progress` and
+  `background_tasks_changed`; only `task_started` reopens it. `339e46b30`/`29b28b785` task
+  events keep the turn that started the task (`task_turn_ids`), the stop sweep included.
+- `587083ded` (Claude half) at turn end, open foreground tasks get terminal evidence on their
+  own turn; a run is background once `task_updated` backgrounds it (`run.background`) or the
+  CLI lists its task, and ownership is read through `subagent_owned_task_ids`. `a769ed0fa` an interrupted or failed launcher turn closes its open
+  Task/Agent call as stopped or failed, and its child turn.
+- `a21eb2b43` (Claude half) the first result of a resumed process only sets the usage baseline;
+  `mainLoopCacheReadTokens`, `claudeResultObserved` and `cacheProcessId` not ported.
+- `4b4cee418` (Claude half) MCP "agent" tools are not subagent launches; quiet system subtypes
+  and unknown kinds go to the log; data-loss warnings, `informational` and refusals are shown;
+  `api_retry` is quiet before the third attempt unless rate limited; ambient background tasks
+  are not announced. The uncached-ingestion log line is not ported (no context-usage warnings).
+- Not ported: `2e92edf91` (the generated session id as the resume cursor only after output).
+  Synara stores the adapter's live cursor again later, before `stopSession` among others
+  (`ProviderService.ts`, the binding `upsert` of `activeSession.resumeCursor`); the reactor here
+  stores the Claude cursor only on `session.started` and turn start. Holding the id back would
+  lose one-turn conversations and fork sources, so that later store has to be ported first. Not
+  urgent: a cursor naming a conversation the CLI never wrote already recovers ("No conversation
+  found" starts a new one).
 
 ## File map
 
