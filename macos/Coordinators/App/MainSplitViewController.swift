@@ -12,7 +12,6 @@ import SwiftUI
 /// its workspace.
 @MainActor final class MainSplitViewController: NSSplitViewController {
     private let coordinator: AppCoordinator
-    private let sidebar: MainSidebarController
     private let sidebarItem: NSSplitViewItem
     private let contentItem: NSSplitViewItem
     private let paneItem: NSSplitViewItem
@@ -29,14 +28,15 @@ import SwiftUI
     init(model: AppViewModel) {
         let coordinator = model.coordinator
         self.coordinator = coordinator
-        let sidebar = MainSidebarController(coordinator: coordinator)
+        // The sidebar stands on AppKit's own sidebar material, as a source list does.
+        let sidebar = NSHostingController(rootView: MainSidebarColumn(coordinator: coordinator))
         let content = NSHostingController(rootView: MainContentColumn(model: model))
         // The pane draws its own tab strip under the toolbar, clear of the toolbar's pane toggle.
         let pane = NSHostingController(rootView: MainPaneColumn(coordinator: coordinator))
         // The columns' widths are the split view's to decide, not their content's.
+        sidebar.sizingOptions = []
         content.sizingOptions = []
         pane.sizingOptions = []
-        self.sidebar = sidebar
         sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebar)
         sidebarItem.minimumThickness = MainWindowMetrics.sidebarMin
         sidebarItem.maximumThickness = MainWindowMetrics.sidebarMax
@@ -82,7 +82,6 @@ import SwiftUI
             }
         }
         observePane()
-        observeBackground()
     }
 
     override func viewWillAppear() {
@@ -122,17 +121,6 @@ import SwiftUI
             // the last one's width, which its chat visibly jumps from. Lay them out before it draws.
             if view.window?.isVisible == true { splitView.layoutSubtreeIfNeeded() }
         }
-    }
-
-    /// The sidebar's backdrop follows the setting, as the SwiftUI columns' does (`windowBackdrop`).
-    private func observeBackground() {
-        let backdrop = withObservationTracking {
-            coordinator.windowBackdrop
-        } onChange: { [weak self] in
-            Task { @MainActor in self?.observeBackground() }
-        }
-        sidebar.washOpacity = backdrop.opacity
-        sidebar.showsRule = backdrop.isTranslucent
     }
 
     /// The toolbar over a terminal and its pane is the window's own backdrop in both sections. AppKit
@@ -190,79 +178,12 @@ private struct SettingsWindowOpener: ViewModifier {
     }
 }
 
-/// The sidebar's column: the list on the window's backdrop (`WindowBackdropView`), always, where the
-/// other columns stand on it only while the window is translucent.
-///
-/// The list keeps its own hosting controller, a child of this one, so it is told the toolbar's
-/// safe area as it was when it was the column itself.
-private final class MainSidebarController: NSViewController {
-    private let list: NSHostingController<MainSidebarColumn>
-    private let backdrop = WindowBackdropView()
-    /// How much of the backdrop's wash is laid on (`WindowBackdrop.opacity`).
-    var washOpacity: Double {
-        get { backdrop.washOpacity }
-        set { backdrop.washOpacity = newValue }
-    }
-    private let rule = ColumnRuleView()
-    /// The sidebar's edge, drawn only while the window is translucent: the screen then stands on the
-    /// same backdrop and needs the line to part them; a solid screen parts them by its own colour.
-    var showsRule = false { didSet { rule.isHidden = !showsRule } }
-
-    init(coordinator: AppCoordinator) {
-        list = NSHostingController(rootView: MainSidebarColumn(coordinator: coordinator))
-        // The column's width is the split view's to decide, not its content's.
-        list.sizingOptions = []
-        super.init(nibName: nil, bundle: nil)
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    override func loadView() {
-        view = backdrop
-        addChild(list)
-        list.view.translatesAutoresizingMaskIntoConstraints = false
-        backdrop.addSubview(list.view)
-        rule.isHidden = !showsRule
-        rule.translatesAutoresizingMaskIntoConstraints = false
-        backdrop.addSubview(rule)
-        NSLayoutConstraint.activate([
-            list.view.leadingAnchor.constraint(equalTo: backdrop.leadingAnchor),
-            list.view.trailingAnchor.constraint(equalTo: backdrop.trailingAnchor),
-            list.view.topAnchor.constraint(equalTo: backdrop.topAnchor),
-            list.view.bottomAnchor.constraint(equalTo: backdrop.bottomAnchor),
-            rule.trailingAnchor.constraint(equalTo: backdrop.trailingAnchor),
-            rule.topAnchor.constraint(equalTo: backdrop.topAnchor),
-            rule.bottomAnchor.constraint(equalTo: backdrop.bottomAnchor),
-        ])
-    }
-}
-
 /// The columns' split view, which draws no divider of its own. AppKit lays the columns edge to edge
-/// and draws a divider under them, so it shows only where the column over it is see-through: beside
-/// the sidebar's list, not beside a screen's content. Each edge is drawn on top instead, the same
-/// line on both sides of the screen: the sidebar's trailing one (`ColumnRuleView`) and the pane's
-/// leading one (`MainPaneColumn`).
+/// and draws a divider under them, so it shows only where the column over it is see-through. The
+/// sidebar is parted by its own material, and the pane draws its leading edge on top
+/// (`MainPaneColumn`).
 private final class MainSplitView: RuleSplitView {
     override var dividerColor: NSColor { .clear }
-}
-
-/// A column's edge: a hairline in the rule colour. Colour only, so neither VoiceOver nor the pointer
-/// finds it.
-private final class ColumnRuleView: NSView {
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        widthAnchor.constraint(equalToConstant: Theme.Size.hairline).isActive = true
-        setAccessibilityElement(false)
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-    override func draw(_ dirtyRect: NSRect) {
-        Theme.palette.border.nsColor.setFill()
-        bounds.fill()
-    }
 }
 
 /// The sidebar's list, once the root model exists.
@@ -282,8 +203,8 @@ private struct MainSidebarColumn: View {
 /// pane as the safe area; the pane draws its own bar there. It is opaque unless the window is
 /// translucent, where it stands on the window's backdrop (`WindowBackdrop`): AppKit
 /// backs an inspector with glass, which would show through wherever the pane is not drawn —
-/// between one panel and the next, or while a page loads. It draws its own edge, on top, the same
-/// line as the sidebar's (`ColumnRuleView`): the split view draws none (`MainSplitView`).
+/// between one panel and the next, or while a page loads. It draws its own edge, on top: the split
+/// view draws none (`MainSplitView`).
 private struct MainPaneColumn: View {
     let coordinator: AppCoordinator
 

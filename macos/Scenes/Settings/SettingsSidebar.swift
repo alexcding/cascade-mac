@@ -7,12 +7,12 @@ import SwiftUI
 /// selection whether or not the list has the keyboard. A SwiftUI sidebar list draws the system's own
 /// instead: accent-tinted icons, and an accent plate while it has the keyboard.
 ///
-/// The list stands inside the window's backdrop (`WindowBackdropView`), as the main sidebar's does
-/// (`MainSidebarController`): the backdrop runs up under the title bar, the list starts below it, and
-/// a selection drawn inside the backdrop's material is the main sidebar's shade, not a flat grey.
+/// The list stands inside the window's backdrop (`WindowBackdropView`): the backdrop runs up under
+/// the title bar, the list starts below it, and a selection drawn inside the backdrop's material is
+/// its shade, not a flat grey.
 struct SettingsSidebar: NSViewRepresentable {
     @Binding var selection: SettingsSection
-    /// How much of the backdrop's wash is laid on (`WindowBackdrop.opacity`), as on the main sidebar.
+    /// How much of the backdrop's wash is laid on (`WindowBackdrop.opacity`).
     var washOpacity: Double = 1
 
     func makeCoordinator() -> Coordinator { Coordinator(selection: $selection) }
